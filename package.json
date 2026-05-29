@@ -1,0 +1,17 @@
+{
+  "name": "purnima-payment-backend",
+  "version": "1.0.0",
+  "description": "Purnima E-Sports Payment Backend",
+  "main": "index.js",
+  "scripts": {
+    "dev": "vercel dev",
+    "deploy": "vercel --prod"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.0.0",
+    "node-fetch": "^2.7.0"
+  },
+  "devDependencies": {
+    "@vercel/node": "^3.0.0"
+  }
+}
