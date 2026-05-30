@@ -118,7 +118,7 @@ app.post('/api/wallet/createOrder', verifyToken, async (req, res) => {
     const formData = new URLSearchParams();
     formData.append('user_token', TRANZUPI_USER_TOKEN);
     formData.append('customer_mobile', TRANZUPI_MOBILE);
-    formData.append('amount', amount.toString());
+    formData.append('amount', amount.toFixed(2));
     formData.append('order_id', orderId);
     formData.append('redirect_url', 'https://purnima-esport.web.app');
     formData.append('remark1', 'Wallet Recharge');
@@ -155,7 +155,7 @@ app.post('/api/wallet/createOrder', verifyToken, async (req, res) => {
     const data = response.data;
     console.log('TranzUPI Response:', JSON.stringify(data));
 
-    if (!data.status && !data.success) {
+    if (data.status !== true) {
       return res.status(500).json({ 
         error: data.message || 'Payment creation failed',
         detail: data
@@ -225,7 +225,8 @@ app.post('/api/wallet/verifyOrder', verifyToken, async (req, res) => {
     formData.append('order_id', orderId);
 
        const response = await axios.post(
-      'https://pay.tranzupi.com/api/check-order',
+      'https://tranzupi.com/api/check-order-status',
+
    formData.toString(),
       {
         headers: {
@@ -238,7 +239,7 @@ app.post('/api/wallet/verifyOrder', verifyToken, async (req, res) => {
     const data = response.data;
     console.log('Check Order Response:', data);
 
-    const payStatus = data.result ? data.result.status : '';
+    const payStatus = data.status || (data.result ? data.result.status : '');
 
     if (payStatus === 'completed' || payStatus === 'SUCCESS' || payStatus === 'PAID') {
       
@@ -280,7 +281,7 @@ app.post('/api/webhook', async (req, res) => {
     const orderId = body.order_id || body.orderId;
     const status = body.status;
 
-    if (status === 'completed' || status === 'PAID' || status === 'SUCCESS') {
+    if (status === 'completed' || status === 'PAID' || status === 'SUCCESS' || status === 'COMPLETED') {
       const orderDoc = await db
         .collection('pending_orders')
         .doc(orderId)
