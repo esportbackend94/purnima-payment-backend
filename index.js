@@ -7,19 +7,21 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Firebase Initialize
-let serviceAccount;
-try {
-  \nMIIEvwIBADANBgkqhkiG9w0BAQEFAASCBKkwggSlAgEAAoIBAQC3LYiUYRjEVShU\nSucHRkWtVKlId/xMbHtgS1BADUjoXIvlNwSVB+Y8oVactirupx1xVLeiWXwEDg9j\nDqEWMx8ClvaCuc62UbItUCEnLaBIyxinawHo4vXXJJxsnU4OrR4EPV1g06Jxt6Q6\nrukZfrI/C3mW36LloOgZ7FbpFNQRzJCFvXdkGeYgyboyKkZLwLzTUrn8Xau63sSN\n0zKCFJvL9MU+rIeMfUw5JUte1ZLSBeCC53/HNMuDPfb+FSUfUGJplwoXv2arxPHy\nbsNuUQDCgTTV1AOr+ANAyUIQuTy8sn699/miv0F7xR5V6+SphHKs5b4Awx/2KEIG\nH/7uKvcdAgMBAAECggEABzn/JOdtvDUl2al40tMlZZCs+wRsyjEPbv2ZpWVAxpX8\nGOdiQWTl4ud0jMstB2xFX5a5heik2V4aokxN85vBse71u7OL4ap4bow2Op70r1p/\n1v8EPMVTcJDrsOdF0JNo1z76g5rl0jmt+3iyDoTukEkqG1coTIncDkXCKgDd2vPX\nYq6scBrVEqKzXSa0hhT0nuaw4BlhIPjQk6nzeUMI06acXdUZkpDI3/qT6s6vBdU7\nvPOYDSBJ/bdGAmv9KO+SJfXD306m8ZGP3b/M0sSycvGOhm+8aZDkM3lPlzXoEvL4\nbZ1plvpBx8dGRFKPs9TJvA5S0/OM32Zb9Fi2yXUwsQKBgQDw9U86DdcCOF4qaVR8\nqmVpSCwN9AbxNE5enqV4x9+cwIHZqpV/uE4o4uTtoYvM0oL4PsCa1jcAZnAgzZoQ\n4IXYYDQvhA3150VxPq2lAdpVargGxy5gr2fsBijpB3v6UlW+JicSwycHXiHxBIXr\nwxTVxYtDg7OcclMArmCciz6x1QKBgQDCnNnbCcvCWG1YDfCaX1EO8PSxM7snzVCg\n5iplGVvAWcZjF/rFhdQzJyzSPYzr6zAsneysiADNPaaBg2eqD31AK1s/EZYv15tu\nWpN3YXiUHDqBFLXjz4fx9rOmKmi/b0JT6sF8JcLTrryRzqruz7aZZ3iwbHzkTksL\n54xhCGCMKQKBgQCNUCCluGYnTC2Vi+5bqocNBqGnkTzdCsMHZN1Ah1/SC2hb4loI\n7GsSOXbvEjXt6mua8Rp99DGPj4QlCM9ZJIP6kPkqALU7SOYF8y9dPUfxnkPM3dWK\nKHS3DCnD+HqyJMVaXf++Vis2e/NF6VQtH1zBvjfdYYjdsIKTPLE2PceH/QKBgQC6\nvxiuf2/vRjtmy7md6Ok3lTC4+hMV1ocQXs0/xl2s7njYjiIteIZvr5/q/vVDTaQk\nrEZ4KOncCNTGYvoOzl46PWCJ3K5pqlOUSYZIgFfciFn7k4wW1wZ0wW8SfI+XY4Qa\nUqLoJrQVvQ9mOxL7poZqHkhJw1D1I8wP2Fl0oz1CQQKBgQDT8CLIt1ztO0urmueK\nfodP1eX9WNT0jRFPvfHF65Vb/VZpKnQlocBYnErREuX3wZngz786exLafzkb4+PA\n5lUp4+gWScxNL5C3zofLvLwwSnffGnIZW2lhk5BB2FlAj3MUunV/HeSG2PGDjIbM\n285w+5zuPQkXu1wmn2wSCmHQsw==\n-----END PRIVATE KEY-----\n",
-} catch(e) {
-  console.log('Firebase config error:', e.message);
-}
+// Firebase Initialize - HARDCODED
+const serviceAccount = {
+  "type": "service_account",
+  "project_id": "purnima-esport",
+  "private_key_id": "YOUR_PRIVATE_KEY_ID",
+  "private_key": "-----BEGIN RSA PRIVATE KEY-----\nMIIEvwIBADANBgkqhkiG9w0BAQEFAASCBKkwggSlAgEAAoIBAQC3LYiUYRjEVShU\nSucHRkWtVKlId/xMbHtgS1BADUjoXIvlNwSVB+Y8oVactirupx1xVLeiWXwEDg9j\nDqEWMx8ClvaCuc62UbItUCEnLaBIyxinawHo4vXXJJxsnU4OrR4EPV1g06Jxt6Q6\nnrukZfrI/C3mW36LloOgZ7FbpFNQRzJCFvXdkGeYgyboyKkZLwLzTUrn8Xau63sSN\n0zKCFJvL9MU+rIeMfUw5JUte1ZLSBeCC53/HNMuDPfb+FSUfUGJplwoXv2arxPHy\nbsNuUQDCgTTV1AOr+ANAyUIQuTy8sn699/miv0F7xR5V6+SphHKs5b4Awx/2KEIG\nnH/7uKvcdAgMBAAECggEABzn/JOdtvDUl2al40tMlZZCs+wRsyjEPbv2ZpWVAxpX8\nnGOdiQWTl4ud0jMstB2xFX5a5heik2V4aokxN85vBse71u7OL4ap4bow2Op70r1p/\n1v8EPMVTcJDrsOdF0JNo1z76g5rl0jmt+3iyDoTukEkqG1coTIncDkXCKgDd2vPX\nYq6scBrVEqKzXSa0hhT0nuaw4BlhIPjQk6nzeUMI06acXdUZkpDI3/qT6s6vBdU7\nvPOYDSBJ/bdGAmv9KO+SJfXD306m8ZGP3b/M0sSycvGOhm+8aZDkM3lPlzXoEvL4\nbZ1plvpBx8dGRFKPs9TJvA5S0/OM32Zb9Fi2yXUwsQKBgQDw9U86DdcCOF4qaVR8\nnqmVpSCwN9AbxNE5enqV4x9+cwIHZqpV/uE4o4uTtoYvM0oL4PsCa1jcAZnAgzZoQ\n4IXYYDQvhA3150VxPq2lAdpVargGxy5gr2fsBijpB3v6UlW+JicSwycHXiHxBIXr\nnwxTVxYtDg7OcclMArmCciz6x1QKBgQDCnNnbCcvCWG1YDfCaX1EO8PSxM7snzVCg\nn5iplGVvAWcZjF/rFhdQzJyzSPYzr6zAsneysiADNPaaBg2eqD31AK1s/EZYv15tu\nnWpN3YXiUHDqBFLXjz4fx9rOmKmi/b0JT6sF8JcLTrryRzqruz7aZZ3iwbHzkTksL\nn54xhCGCMKQKBgQCNUCCluGYnTC2Vi+5bqocNBqGnkTzdCsMHZN1Ah1/SC2hb4loI\nn7GsSOXbvEjXt6mua8Rp99DGPj4QlCM9ZJIP6kPkqALU7SOYF8y9dPUfxnkPM3dWK\nnKHS3DCnD+HqyJMVaXf++Vis2e/NF6VQtH1zBvjfdYYjdsIKTPLE2PceH/QKBgQC6\nnvxiuf2/vRjtmy7md6Ok3lTC4+hMV1ocQXs0/xl2s7njYjiIteIZvr5/q/vVDTaQk\nnrEZ4KOncCNTGYvoOzl46PWCJ3K5pqlOUSYZIgFfciFn7k4wW1wZ0wW8SfI+XY4Qa\nnUqLoJrQVvQ9mOxL7poZqHkhJw1D1I8wP2Fl0oz1CQQKBgQDT8CLIt1ztO0urmueK\nnfodP1eX9WNT0jRFPvfHF65Vb/VZpKnQlocBYnErREuX3wZngz786exLafzkb4+PA\nn5lUp4+gWScxNL5C3zofLvLwwSnffGnIZW2lhk5BB2FlAj3MUunV/HeSG2PGDjIbM\nn285w+5zuPQkXu1wmn2wSCmHQsw==\n-----END RSA PRIVATE KEY-----\n",
+  "client_email": "firebase-adminsdk-XXXXX@purnima-esport.iam.gserviceaccount.com",
+  "client_id": "YOUR_CLIENT_ID",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token"
+};
 
-if (serviceAccount) {
-  admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount)
-  });
-}
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount)
+});
 
 const db = admin.firestore();
 
@@ -27,6 +29,7 @@ const db = admin.firestore();
 const TRANZUPI_API_KEY = "cde7dc0d8f73cc4c65cc43f517da3967";
 const TRANZUPI_SECRET = "cde7dc0d8f73cc4c65cc43f517da3967";
 const TRANZUPI_MERCHANT_ID = "9928492158";
+
 // Token Verify
 async function verifyToken(req, res, next) {
   try {
@@ -61,7 +64,6 @@ app.post('/api/wallet/createOrder', verifyToken, async (req, res) => {
       return res.status(400).json({ error: 'Minimum amount Rs.10' });
     }
 
-    // TranzUPI API Call
     const response = await axios.post(
       'https://api.tranzupi.com/v1/order/create',
       {
@@ -72,9 +74,7 @@ app.post('/api/wallet/createOrder', verifyToken, async (req, res) => {
         customer_name: userName || 'User',
         customer_email: userEmail || 'user@gmail.com',
         redirect_url: 'https://purnima-esport.web.app',
-        webhook_url: process.env.VERCEL_URL 
-          ? `https://${process.env.VERCEL_URL}/api/webhook`
-          : 'https://purnima-backend.vercel.app/api/webhook'
+        webhook_url: 'https://project-2apis.vercel.app/api/webhook'
       },
       {
         headers: {
@@ -88,7 +88,6 @@ app.post('/api/wallet/createOrder', verifyToken, async (req, res) => {
 
     const data = response.data;
 
-    // Firestore mein order save karo
     await db.collection('pending_orders').doc(orderId).set({
       uid: uid,
       amount: amount,
@@ -100,20 +99,12 @@ app.post('/api/wallet/createOrder', verifyToken, async (req, res) => {
     return res.json({
       success: true,
       orderId: orderId,
-      qrData: data.upi_string 
-        || data.qr_data 
-        || data.payment_url 
-        || data.upi_url,
-      upiId: data.upi_id 
-        || data.vpa 
-        || 'purnima@upi'
+      qrData: data.upi_string || data.qr_data || data.payment_url || data.upi_url,
+      upiId: data.upi_id || data.vpa || 'purnima@upi'
     });
 
   } catch (err) {
     console.log('CreateOrder Error:', err.message);
-    if (err.response) {
-      console.log('TranzUPI Response:', err.response.data);
-    }
     return res.status(500).json({ 
       error: err.message,
       detail: err.response ? err.response.data : null
@@ -127,11 +118,7 @@ app.post('/api/wallet/verifyOrder', verifyToken, async (req, res) => {
     const { orderId } = req.body;
     const uid = req.uid;
 
-    // Firestore check
-    const orderDoc = await db
-      .collection('pending_orders')
-      .doc(orderId)
-      .get();
+    const orderDoc = await db.collection('pending_orders').doc(orderId).get();
     
     if (!orderDoc.exists) {
       return res.json({ status: 'NOT_FOUND' });
@@ -139,12 +126,10 @@ app.post('/api/wallet/verifyOrder', verifyToken, async (req, res) => {
 
     const orderData = orderDoc.data();
 
-    // Already paid check
     if (orderData.status === 'PAID') {
       return res.json({ status: 'PAID' });
     }
 
-    // TranzUPI se status check
     const response = await axios.get(
       `https://api.tranzupi.com/v1/order/status/${orderId}`,
       {
@@ -159,28 +144,20 @@ app.post('/api/wallet/verifyOrder', verifyToken, async (req, res) => {
     const payStatus = response.data.status;
 
     if (payStatus === 'PAID' || payStatus === 'SUCCESS') {
-      
-      // Duplicate payment check
-      const alreadyPaid = orderData.status === 'PAID';
-      if (!alreadyPaid) {
-        
-        // Wallet mein paisa add karo
-        await db.collection('users').doc(uid).update({
-          balance: admin.firestore.FieldValue.increment(orderData.amount),
-          transactions: admin.firestore.FieldValue.arrayUnion({
-            type: 'credit',
-            amount: orderData.amount,
-            msg: 'Wallet Recharge: Rs.' + orderData.amount,
-            date: Date.now()
-          })
-        });
+      await db.collection('users').doc(uid).update({
+        balance: admin.firestore.FieldValue.increment(orderData.amount),
+        transactions: admin.firestore.FieldValue.arrayUnion({
+          type: 'credit',
+          amount: orderData.amount,
+          msg: 'Wallet Recharge: Rs.' + orderData.amount,
+          date: Date.now()
+        })
+      });
 
-        // Order status update
-        await db.collection('pending_orders').doc(orderId).update({
-          status: 'PAID',
-          paidAt: Date.now()
-        });
-      }
+      await db.collection('pending_orders').doc(orderId).update({
+        status: 'PAID',
+        paidAt: Date.now()
+      });
 
       return res.json({ status: 'PAID' });
     }
@@ -200,13 +177,8 @@ app.post('/api/webhook', async (req, res) => {
     const orderId = body.order_id || body.orderId;
     const status = body.status;
 
-    console.log('Webhook received:', orderId, status);
-
     if (status === 'PAID' || status === 'SUCCESS') {
-      const orderDoc = await db
-        .collection('pending_orders')
-        .doc(orderId)
-        .get();
+      const orderDoc = await db.collection('pending_orders').doc(orderId).get();
       
       if (orderDoc.exists) {
         const orderData = orderDoc.data();
@@ -226,8 +198,6 @@ app.post('/api/webhook', async (req, res) => {
             status: 'PAID',
             paidAt: Date.now()
           });
-
-          console.log('Payment processed for order:', orderId);
         }
       }
     }
@@ -235,7 +205,6 @@ app.post('/api/webhook', async (req, res) => {
     res.json({ success: true });
 
   } catch (err) {
-    console.log('Webhook Error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
