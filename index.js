@@ -28,6 +28,7 @@ const db = admin.firestore();
 // TranzUPI Config
 // YAHAN APNA USER TOKEN DAALO (API Keys page se)
 const TRANZUPI_API_SECRET = "766f3a89f4b64a5635e4f3c847c5d5fa";
+const TRANZUPI_MOBILE = "9928492158";
 
 // Token Verify
 async function verifyToken(req, res, next) {
@@ -67,16 +68,9 @@ app.get('/api/test-tranzupi', async (req, res) => {
     formData.append('remark1', 'Test');
     formData.append('remark2', 'Test');
 
-    // 🔥 OPTION 1 (Original)
-    const url1 = 'https://tranzupi.com/api/create-order';
-    // 🔥 OPTION 2 (v2 version)
-    const url2 = 'https://tranzupi.com/api/v2/create-order';
-    // 🔥 OPTION 3 (Payment subdomain)
-    const url3 = 'https://api.tranzupi.com/api/create-order';
+    const url = 'https://tranzupi.com/api/create-order';
 
-    let lastError = null;
-
-    for (const url of [url1, url2, url3]) {
+    try {
       try {
         console.log('Trying URL:', url);
         const response = await axios.post(url, formData.toString(), {
@@ -112,10 +106,9 @@ app.post('/api/wallet/createOrder', verifyToken, async (req, res) => {
       return res.status(400).json({ error: 'Minimum amount Rs.10' });
     }
 
-    // 🔥 TRY 3 ENDPOINTS - Jo chale usko pakad lo
+    // TranzUPI Create Order
     const formData = new URLSearchParams();
-    formData.append('user_token', TRANZUPI_API_SECRET);
-    formData.append('customer_mobile', TRANZUPI_MOBILE);
+    formData.append('api_secret', TRANZUPI_API_SECRET);
     formData.append('amount', amount.toFixed(2));
     formData.append('order_id', orderId);
     formData.append('redirect_url', 'https://purnima-esport.web.app');
@@ -123,8 +116,6 @@ app.post('/api/wallet/createOrder', verifyToken, async (req, res) => {
     formData.append('remark2', userName || 'User');
 
     const urls = [
-      'https://pay.tranzupi.com/api/create-order',
-      'https://tranzupi.com/api/v1/create-order',
       'https://tranzupi.com/api/create-order'
     ];
 
