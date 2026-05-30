@@ -10,7 +10,7 @@ app.use(express.json());
 // Firebase Initialize
 let serviceAccount;
 try {
-  serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+  \nMIIEvwIBADANBgkqhkiG9w0BAQEFAASCBKkwggSlAgEAAoIBAQC3LYiUYRjEVShU\nSucHRkWtVKlId/xMbHtgS1BADUjoXIvlNwSVB+Y8oVactirupx1xVLeiWXwEDg9j\nDqEWMx8ClvaCuc62UbItUCEnLaBIyxinawHo4vXXJJxsnU4OrR4EPV1g06Jxt6Q6\nrukZfrI/C3mW36LloOgZ7FbpFNQRzJCFvXdkGeYgyboyKkZLwLzTUrn8Xau63sSN\n0zKCFJvL9MU+rIeMfUw5JUte1ZLSBeCC53/HNMuDPfb+FSUfUGJplwoXv2arxPHy\nbsNuUQDCgTTV1AOr+ANAyUIQuTy8sn699/miv0F7xR5V6+SphHKs5b4Awx/2KEIG\nH/7uKvcdAgMBAAECggEABzn/JOdtvDUl2al40tMlZZCs+wRsyjEPbv2ZpWVAxpX8\nGOdiQWTl4ud0jMstB2xFX5a5heik2V4aokxN85vBse71u7OL4ap4bow2Op70r1p/\n1v8EPMVTcJDrsOdF0JNo1z76g5rl0jmt+3iyDoTukEkqG1coTIncDkXCKgDd2vPX\nYq6scBrVEqKzXSa0hhT0nuaw4BlhIPjQk6nzeUMI06acXdUZkpDI3/qT6s6vBdU7\nvPOYDSBJ/bdGAmv9KO+SJfXD306m8ZGP3b/M0sSycvGOhm+8aZDkM3lPlzXoEvL4\nbZ1plvpBx8dGRFKPs9TJvA5S0/OM32Zb9Fi2yXUwsQKBgQDw9U86DdcCOF4qaVR8\nqmVpSCwN9AbxNE5enqV4x9+cwIHZqpV/uE4o4uTtoYvM0oL4PsCa1jcAZnAgzZoQ\n4IXYYDQvhA3150VxPq2lAdpVargGxy5gr2fsBijpB3v6UlW+JicSwycHXiHxBIXr\nwxTVxYtDg7OcclMArmCciz6x1QKBgQDCnNnbCcvCWG1YDfCaX1EO8PSxM7snzVCg\n5iplGVvAWcZjF/rFhdQzJyzSPYzr6zAsneysiADNPaaBg2eqD31AK1s/EZYv15tu\nWpN3YXiUHDqBFLXjz4fx9rOmKmi/b0JT6sF8JcLTrryRzqruz7aZZ3iwbHzkTksL\n54xhCGCMKQKBgQCNUCCluGYnTC2Vi+5bqocNBqGnkTzdCsMHZN1Ah1/SC2hb4loI\n7GsSOXbvEjXt6mua8Rp99DGPj4QlCM9ZJIP6kPkqALU7SOYF8y9dPUfxnkPM3dWK\nKHS3DCnD+HqyJMVaXf++Vis2e/NF6VQtH1zBvjfdYYjdsIKTPLE2PceH/QKBgQC6\nvxiuf2/vRjtmy7md6Ok3lTC4+hMV1ocQXs0/xl2s7njYjiIteIZvr5/q/vVDTaQk\nrEZ4KOncCNTGYvoOzl46PWCJ3K5pqlOUSYZIgFfciFn7k4wW1wZ0wW8SfI+XY4Qa\nUqLoJrQVvQ9mOxL7poZqHkhJw1D1I8wP2Fl0oz1CQQKBgQDT8CLIt1ztO0urmueK\nfodP1eX9WNT0jRFPvfHF65Vb/VZpKnQlocBYnErREuX3wZngz786exLafzkb4+PA\n5lUp4+gWScxNL5C3zofLvLwwSnffGnIZW2lhk5BB2FlAj3MUunV/HeSG2PGDjIbM\n285w+5zuPQkXu1wmn2wSCmHQsw==\n-----END PRIVATE KEY-----\n",
 } catch(e) {
   console.log('Firebase config error:', e.message);
 }
@@ -24,10 +24,9 @@ if (serviceAccount) {
 const db = admin.firestore();
 
 // TranzUPI Keys
-const TRANZUPI_API_KEY = process.env.TRANZUPI_API_KEY;
-const TRANZUPI_SECRET = process.env.TRANZUPI_SECRET;
-const TRANZUPI_MERCHANT_ID = process.env.TRANZUPI_MERCHANT_ID;
-
+const TRANZUPI_API_KEY = "cde7dc0d8f73cc4c65cc43f517da3967";
+const TRANZUPI_SECRET = "cde7dc0d8f73cc4c65cc43f517da3967";
+const TRANZUPI_MERCHANT_ID = "9928492158";
 // Token Verify
 async function verifyToken(req, res, next) {
   try {
