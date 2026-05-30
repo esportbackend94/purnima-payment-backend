@@ -27,8 +27,7 @@ const db = admin.firestore();
 
 // TranzUPI Config
 // YAHAN APNA USER TOKEN DAALO (API Keys page se)
-const TRANZUPI_USER_TOKEN = "766f3a89f4b64a5635e4f3c847c5d5fa";
-const TRANZUPI_MOBILE = "9928492158";
+const TRANZUPI_API_SECRET = "766f3a89f4b64a5635e4f3c847c5d5fa";
 
 // Token Verify
 async function verifyToken(req, res, next) {
@@ -61,8 +60,7 @@ app.get('/', (req, res) => {
 app.get('/api/test-tranzupi', async (req, res) => {
   try {
     const formData = new URLSearchParams();
-    formData.append('user_token', TRANZUPI_USER_TOKEN);
-    formData.append('customer_mobile', TRANZUPI_MOBILE);
+    formData.append('api_secret', TRANZUPI_API_SECRET);
     formData.append('amount', '10');
     formData.append('order_id', 'TEST_' + Date.now());
     formData.append('redirect_url', 'https://purnima-esport.web.app');
@@ -116,7 +114,7 @@ app.post('/api/wallet/createOrder', verifyToken, async (req, res) => {
 
     // 🔥 TRY 3 ENDPOINTS - Jo chale usko pakad lo
     const formData = new URLSearchParams();
-    formData.append('user_token', TRANZUPI_USER_TOKEN);
+    formData.append('user_token', TRANZUPI_API_SECRET);
     formData.append('customer_mobile', TRANZUPI_MOBILE);
     formData.append('amount', amount.toFixed(2));
     formData.append('order_id', orderId);
@@ -221,7 +219,7 @@ app.post('/api/wallet/verifyOrder', verifyToken, async (req, res) => {
 
     // TranzUPI se status check
     const formData = new URLSearchParams();
-    formData.append('user_token', TRANZUPI_USER_TOKEN);
+    formData.append('api_secret', TRANZUPI_API_SECRET);
     formData.append('order_id', orderId);
 
        const response = await axios.post(
