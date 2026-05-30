@@ -26,6 +26,7 @@ admin.initializeApp({
 const db = admin.firestore();
 
 // TranzUPI Config
+// YAHAN APNA USER TOKEN DAALO (API Keys page se)
 const TRANZUPI_USER_TOKEN = "766f3a89f4b64a5635e4f3c847c5d5fa";
 const TRANZUPI_MOBILE = "9928492158";
 
@@ -55,7 +56,8 @@ app.get('/', (req, res) => {
   });
 });
 
-// 🔥 DEBUG TEST ROUTE - Kaunsa endpoint chal raha hai
+// CREATE ORDER
+// 🔥 DEBUG TEST ROUTE - Isse pata chalega API chal raha hai ya nahi
 app.get('/api/test-tranzupi', async (req, res) => {
   try {
     const formData = new URLSearchParams();
@@ -67,15 +69,16 @@ app.get('/api/test-tranzupi', async (req, res) => {
     formData.append('remark1', 'Test');
     formData.append('remark2', 'Test');
 
-    const urls = [
-      'https://tranzupi.com/api/create-order',
-      'https://tranzupi.com/api/v2/create-order',
-      'https://api.tranzupi.com/api/create-order'
-    ];
+    // 🔥 OPTION 1 (Original)
+    const url1 = 'https://tranzupi.com/api/create-order';
+    // 🔥 OPTION 2 (v2 version)
+    const url2 = 'https://tranzupi.com/api/v2/create-order';
+    // 🔥 OPTION 3 (Payment subdomain)
+    const url3 = 'https://api.tranzupi.com/api/create-order';
 
     let lastError = null;
 
-    for (const url of urls) {
+    for (const url of [url1, url2, url3]) {
       try {
         console.log('Trying URL:', url);
         const response = await axios.post(url, formData.toString(), {
@@ -102,7 +105,6 @@ app.get('/api/test-tranzupi', async (req, res) => {
   }
 });
 
-// CREATE ORDER
 app.post('/api/wallet/createOrder', verifyToken, async (req, res) => {
   try {
     const { amount, orderId, userName, userEmail } = req.body;
@@ -112,6 +114,7 @@ app.post('/api/wallet/createOrder', verifyToken, async (req, res) => {
       return res.status(400).json({ error: 'Minimum amount Rs.10' });
     }
 
+    // 🔥 TRY 3 ENDPOINTS - Jo chale usko pakad lo
     const formData = new URLSearchParams();
     formData.append('user_token', TRANZUPI_USER_TOKEN);
     formData.append('customer_mobile', TRANZUPI_MOBILE);
@@ -122,9 +125,9 @@ app.post('/api/wallet/createOrder', verifyToken, async (req, res) => {
     formData.append('remark2', userName || 'User');
 
     const urls = [
-      'https://tranzupi.com/api/create-order',
-      'https://tranzupi.com/api/v2/create-order',
-      'https://api.tranzupi.com/api/create-order'
+      'https://pay.tranzupi.com/api/create-order',
+      'https://tranzupi.com/api/v1/create-order',
+      'https://tranzupi.com/api/create-order'
     ];
 
     let lastError = null;
@@ -138,7 +141,7 @@ app.post('/api/wallet/createOrder', verifyToken, async (req, res) => {
           timeout: 15000
         });
         console.log('CreateOrder SUCCESS:', url);
-        break;
+        break; // Jo chal gaya, loop tod do
       } catch (e) {
         console.log('CreateOrder FAILED:', url, e.response?.status);
         lastError = e;
@@ -159,6 +162,7 @@ app.post('/api/wallet/createOrder', verifyToken, async (req, res) => {
       });
     }
 
+    // Order Firestore mein save karo
     await db.collection('pending_orders').doc(orderId).set({
       uid: uid,
       amount: amount,
@@ -167,6 +171,7 @@ app.post('/api/wallet/createOrder', verifyToken, async (req, res) => {
       createdAt: Date.now()
     });
 
+    // 🔥 URL nikalne ka alag-alag tarika (API version ke hisaab se)
     const paymentUrl = data.result?.payment_url || data.data?.payment_url || data.payment_url;
 
     return res.json({
@@ -192,13 +197,17 @@ app.post('/api/wallet/createOrder', verifyToken, async (req, res) => {
   }
 });
 
+
 // VERIFY ORDER
 app.post('/api/wallet/verifyOrder', verifyToken, async (req, res) => {
   try {
     const { orderId } = req.body;
     const uid = req.uid;
 
-    const orderDoc = await db.collection('pending_orders').doc(orderId).get();
+    const orderDoc = await db
+      .collection('pending_orders')
+      .doc(orderId)
+      .get();
     
     if (!orderDoc.exists) {
       return res.json({ status: 'NOT_FOUND' });
@@ -210,13 +219,14 @@ app.post('/api/wallet/verifyOrder', verifyToken, async (req, res) => {
       return res.json({ status: 'PAID' });
     }
 
+    // TranzUPI se status check
     const formData = new URLSearchParams();
     formData.append('user_token', TRANZUPI_USER_TOKEN);
     formData.append('order_id', orderId);
 
-    const response = await axios.post(
-      'https://tranzupi.com/api/check-order',
-      formData.toString(),
+       const response = await axios.post(
+      'https://pay.tranzupi.com/api/check-order',
+   formData.toString(),
       {
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded'
@@ -271,7 +281,10 @@ app.post('/api/webhook', async (req, res) => {
     const status = body.status;
 
     if (status === 'completed' || status === 'PAID' || status === 'SUCCESS') {
-      const orderDoc = await db.collection('pending_orders').doc(orderId).get();
+      const orderDoc = await db
+        .collection('pending_orders')
+        .doc(orderId)
+        .get();
       
       if (orderDoc.exists) {
         const orderData = orderDoc.data();
