@@ -28,7 +28,7 @@ const db = admin.firestore();
 // TranzUPI Keys
 const TRANZUPI_API_KEY = "cde7dc0d8f73cc4c65cc43f517da3967";
 const TRANZUPI_SECRET = "cde7dc0d8f73cc4c65cc43f517da3967";
-const TRANZUPI_MERCHANT_ID = "9928492158";
+const TRANZUPI_MERCHANT_ID = "9166740965";
 
 // Token Verify
 async function verifyToken(req, res, next) {
