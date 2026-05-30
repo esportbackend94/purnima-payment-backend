@@ -74,7 +74,7 @@ app.post('/api/wallet/createOrder', verifyToken, async (req, res) => {
         customer_name: userName || 'User',
         customer_email: userEmail || 'user@gmail.com',
         redirect_url: 'https://purnima-esport.web.app',
-        webhook_url: 'https://project-2apis.vercel.app/api/webhook'
+        webhook_url: 'https://purnima-payment-backend.onrender.com/api/webhook'
       },
       {
         headers: {
