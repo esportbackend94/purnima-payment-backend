@@ -1,14 +1,18 @@
 {
   "name": "purnima-backend",
   "version": "1.0.0",
+  "description": "Purnima E-Sports Payment Backend",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "express": "^4.18.2",
-    "cors": "^2.8.5",
     "axios": "^1.6.0",
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
     "firebase-admin": "^12.0.0"
+  },
+  "engines": {
+    "node": "18.x"
   }
 }
