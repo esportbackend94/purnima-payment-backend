@@ -26,8 +26,9 @@ admin.initializeApp({
 const db = admin.firestore();
 
 // ==================== TRANZUPI CONFIG ====================
-const TRANZUPI_USER_TOKEN = "766f3a89f4b64a5635e4f3c847c5d5fa"; // API Secret
-const TRANZUPI_MOBILE = "9928492158"; // Registered Mobile
+// YEH DO LINE SABSE IMPORTANT HAIN
+const TRANZUPI_USER_TOKEN = "766f3a89f4b64a5635e4f3c847c5d5fa";
+const TRANZUPI_MOBILE = "9928492158";
 
 // ==================== MIDDLEWARE ====================
 async function verifyToken(req, res, next) {
@@ -52,37 +53,6 @@ app.get('/', (req, res) => {
   res.json({ message: 'Purnima Backend Running!', status: 'OK' });
 });
 
-// Test TranzUPI
-app.get('/api/test-tranzupi', async (req, res) => {
-  try {
-    const formData = new URLSearchParams();
-    formData.append('user_token', TRANZUPI_USER_TOKEN);
-    formData.append('customer_mobile', TRANZUPI_MOBILE);
-    formData.append('amount', '10.00');
-    formData.append('order_id', 'TEST_' + Date.now());
-    formData.append('redirect_url', 'https://purnima-esport.web.app');
-    formData.append('remark1', 'Test');
-    formData.append('remark2', 'Test');
-
-    const response = await axios.post(
-      'https://tranzupi.com/api/create-order',
-      formData.toString(),
-      {
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        timeout: 15000
-      }
-    );
-
-    res.json({ working: true, response: response.data });
-  } catch (err) {
-    res.status(500).json({
-      error: err.message,
-      status: err.response?.status,
-      data: err.response?.data
-    });
-  }
-});
-
 // Create Order
 app.post('/api/wallet/createOrder', verifyToken, async (req, res) => {
   try {
@@ -93,9 +63,10 @@ app.post('/api/wallet/createOrder', verifyToken, async (req, res) => {
       return res.status(400).json({ error: 'Minimum amount Rs.10' });
     }
 
-    // Amount ko 2 decimal places mein convert karo (TranzUPI ko "10.00" chahiye)
+    // Amount ko "10.00" format mein karo
     const formattedAmount = parseFloat(amount).toFixed(2);
 
+    // URLSearchParams se form data banao
     const formData = new URLSearchParams();
     formData.append('user_token', TRANZUPI_USER_TOKEN);
     formData.append('customer_mobile', TRANZUPI_MOBILE);
@@ -105,6 +76,7 @@ app.post('/api/wallet/createOrder', verifyToken, async (req, res) => {
     formData.append('remark1', 'Wallet Recharge');
     formData.append('remark2', userName || 'User');
 
+    // TranzUPI ko request bhejo
     const response = await axios.post(
       'https://tranzupi.com/api/create-order',
       formData.toString(),
@@ -116,15 +88,15 @@ app.post('/api/wallet/createOrder', verifyToken, async (req, res) => {
 
     const data = response.data;
 
-    // Agar status false aaya toh error
+    // Agar TranzUPI ne false status diya
     if (data.status === false || data.status === 'false') {
       return res.status(500).json({
-        error: data.message || 'Payment creation failed',
+        error: data.message || 'TranzUPI payment failed',
         detail: data
       });
     }
 
-    // Order Firestore mein save karo
+    // Order save karo
     await db.collection('pending_orders').doc(orderId).set({
       uid: uid,
       amount: amount,
@@ -185,7 +157,6 @@ app.post('/api/wallet/verifyOrder', verifyToken, async (req, res) => {
     const data = response.data;
     const payStatus = data.status || data.result?.status || '';
 
-    // Status check karo
     if (payStatus === 'COMPLETED' || payStatus === 'completed' || payStatus === 'SUCCESS' || payStatus === 'PAID') {
       await db.collection('users').doc(uid).update({
         balance: admin.firestore.FieldValue.increment(orderData.amount),
@@ -255,5 +226,4 @@ app.post('/api/webhook', async (req, res) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log('Server started on port ' + PORT);
-  console.log('TranzUPI Mobile:', TRANZUPI_MOBILE);
 });
