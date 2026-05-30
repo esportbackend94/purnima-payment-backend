@@ -119,10 +119,17 @@ app.post('/api/wallet/createOrder', verifyToken, async (req, res) => {
   } catch (err) {
     console.log('CreateOrder Error:', err.message);
     
+    // 🔥 DEBUG: Full error log karo
+    if (err.response) {
+      console.log('TranzUPI Status:', err.response.status);
+      console.log('TranzUPI Data:', JSON.stringify(err.response.data));
+      console.log('TranzUPI Headers:', JSON.stringify(err.response.headers));
+    }
+    
     if (err.response && err.response.status === 503) {
       return res.status(503).json({ 
-        error: 'TranzUPI server is down. Please try after 30 minutes.',
-        detail: 'Service Unavailable'
+        error: 'TranzUPI API error. Check token/endpoint.',
+        detail: err.response.data || 'Service Unavailable'
       });
     }
     
@@ -132,7 +139,6 @@ app.post('/api/wallet/createOrder', verifyToken, async (req, res) => {
     });
   }
 
-});
 
 // VERIFY ORDER
 app.post('/api/wallet/verifyOrder', verifyToken, async (req, res) => {
