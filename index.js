@@ -57,18 +57,64 @@ app.get('/', (req, res) => {
 });
 
 // CREATE ORDER
+// 🔥 DEBUG TEST ROUTE - Isse pata chalega API chal raha hai ya nahi
+app.get('/api/test-tranzupi', async (req, res) => {
+  try {
+    const formData = new URLSearchParams();
+    formData.append('user_token', TRANZUPI_USER_TOKEN);
+    formData.append('customer_mobile', TRANZUPI_MOBILE);
+    formData.append('amount', '10');
+    formData.append('order_id', 'TEST_' + Date.now());
+    formData.append('redirect_url', 'https://purnima-esport.web.app');
+    formData.append('remark1', 'Test');
+    formData.append('remark2', 'Test');
+
+    // 🔥 OPTION 1 (Original)
+    const url1 = 'https://tranzupi.com/api/create-order';
+    // 🔥 OPTION 2 (v2 version)
+    const url2 = 'https://tranzupi.com/api/v2/create-order';
+    // 🔥 OPTION 3 (Payment subdomain)
+    const url3 = 'https://api.tranzupi.com/api/create-order';
+
+    let lastError = null;
+
+    for (const url of [url1, url2, url3]) {
+      try {
+        console.log('Trying URL:', url);
+        const response = await axios.post(url, formData.toString(), {
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          timeout: 10000
+        });
+        console.log('SUCCESS with', url);
+        return res.json({ workingUrl: url, response: response.data });
+      } catch (e) {
+        console.log('FAILED', url, 'Status:', e.response?.status, 'Data:', e.response?.data);
+        lastError = e;
+      }
+    }
+
+    return res.status(500).json({
+      error: 'All TranzUPI endpoints failed',
+      lastError: lastError?.message,
+      lastStatus: lastError?.response?.status,
+      lastData: lastError?.response?.data
+    });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/wallet/createOrder', verifyToken, async (req, res) => {
   try {
     const { amount, orderId, userName, userEmail } = req.body;
     const uid = req.uid;
 
     if (!amount || amount < 10) {
-      return res.status(400).json({ 
-        error: 'Minimum amount Rs.10' 
-      });
+      return res.status(400).json({ error: 'Minimum amount Rs.10' });
     }
 
-    // TranzUPI API Call
+    // 🔥 TRY 3 ENDPOINTS - Jo chale usko pakad lo
     const formData = new URLSearchParams();
     formData.append('user_token', TRANZUPI_USER_TOKEN);
     formData.append('customer_mobile', TRANZUPI_MOBILE);
@@ -78,21 +124,38 @@ app.post('/api/wallet/createOrder', verifyToken, async (req, res) => {
     formData.append('remark1', 'Wallet Recharge');
     formData.append('remark2', userName || 'User');
 
-    const response = await axios.post(
+    const urls = [
       'https://tranzupi.com/api/create-order',
-      formData.toString(),
-      {
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded'
-        },
-        timeout: 15000
+      'https://tranzupi.com/api/v2/create-order',
+      'https://api.tranzupi.com/api/create-order'
+    ];
+
+    let lastError = null;
+    let response = null;
+
+    for (const url of urls) {
+      try {
+        console.log('CreateOrder trying:', url);
+        response = await axios.post(url, formData.toString(), {
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          timeout: 15000
+        });
+        console.log('CreateOrder SUCCESS:', url);
+        break; // Jo chal gaya, loop tod do
+      } catch (e) {
+        console.log('CreateOrder FAILED:', url, e.response?.status);
+        lastError = e;
       }
-    );
+    }
+
+    if (!response) {
+      throw lastError || new Error('All endpoints failed');
+    }
 
     const data = response.data;
-    console.log('TranzUPI Response:', data);
+    console.log('TranzUPI Response:', JSON.stringify(data));
 
-    if (!data.status) {
+    if (!data.status && !data.success) {
       return res.status(500).json({ 
         error: data.message || 'Payment creation failed',
         detail: data
@@ -108,36 +171,31 @@ app.post('/api/wallet/createOrder', verifyToken, async (req, res) => {
       createdAt: Date.now()
     });
 
+    // 🔥 URL nikalne ka alag-alag tarika (API version ke hisaab se)
+    const paymentUrl = data.result?.payment_url || data.data?.payment_url || data.payment_url;
+
     return res.json({
       success: true,
       orderId: orderId,
-      paymentUrl: data.result.payment_url,
-      qrData: data.result.payment_url,
+      paymentUrl: paymentUrl,
+      qrData: paymentUrl,
       upiId: 'Pay via Link'
     });
 
   } catch (err) {
-    console.log('CreateOrder Error:', err.message);
-    
-    // 🔥 DEBUG: Full error log karo
+    console.log('CreateOrder FINAL Error:', err.message);
     if (err.response) {
-      console.log('TranzUPI Status:', err.response.status);
-      console.log('TranzUPI Data:', JSON.stringify(err.response.data));
-      console.log('TranzUPI Headers:', JSON.stringify(err.response.headers));
-    }
-    
-    if (err.response && err.response.status === 503) {
-      return res.status(503).json({ 
-        error: 'TranzUPI API error. Check token/endpoint.',
-        detail: err.response.data || 'Service Unavailable'
-      });
+      console.log('Status:', err.response.status);
+      console.log('Data:', JSON.stringify(err.response.data));
     }
     
     return res.status(500).json({ 
       error: err.message,
-      detail: err.response ? err.response.data : null
+      detail: err.response ? err.response.data : null,
+      hint: 'Check /api/test-tranzupi route to debug'
     });
   }
+});
 
 
 // VERIFY ORDER
