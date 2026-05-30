@@ -26,8 +26,8 @@ admin.initializeApp({
 const db = admin.firestore();
 
 // ==================== TRANZUPI CONFIG ====================
-const TRANZUPI_API_SECRET = "766f3a89f4b64a5635e4f3c847c5d5fa";
-const TRANZUPI_MOBILE = "9928492158";
+const TRANZUPI_USER_TOKEN = "766f3a89f4b64a5635e4f3c847c5d5fa"; // API Secret
+const TRANZUPI_MOBILE = "9928492158"; // Registered Mobile
 
 // ==================== MIDDLEWARE ====================
 async function verifyToken(req, res, next) {
@@ -56,8 +56,9 @@ app.get('/', (req, res) => {
 app.get('/api/test-tranzupi', async (req, res) => {
   try {
     const formData = new URLSearchParams();
-    formData.append('api_secret', TRANZUPI_API_SECRET);
-    formData.append('amount', '10');
+    formData.append('user_token', TRANZUPI_USER_TOKEN);
+    formData.append('customer_mobile', TRANZUPI_MOBILE);
+    formData.append('amount', '10.00');
     formData.append('order_id', 'TEST_' + Date.now());
     formData.append('redirect_url', 'https://purnima-esport.web.app');
     formData.append('remark1', 'Test');
@@ -92,9 +93,13 @@ app.post('/api/wallet/createOrder', verifyToken, async (req, res) => {
       return res.status(400).json({ error: 'Minimum amount Rs.10' });
     }
 
+    // Amount ko 2 decimal places mein convert karo (TranzUPI ko "10.00" chahiye)
+    const formattedAmount = parseFloat(amount).toFixed(2);
+
     const formData = new URLSearchParams();
-    formData.append('api_secret', TRANZUPI_API_SECRET);
-    formData.append('amount', amount.toFixed(2));
+    formData.append('user_token', TRANZUPI_USER_TOKEN);
+    formData.append('customer_mobile', TRANZUPI_MOBILE);
+    formData.append('amount', formattedAmount);
     formData.append('order_id', orderId);
     formData.append('redirect_url', 'https://purnima-esport.web.app');
     formData.append('remark1', 'Wallet Recharge');
@@ -111,13 +116,15 @@ app.post('/api/wallet/createOrder', verifyToken, async (req, res) => {
 
     const data = response.data;
 
-    if (data.status !== true && data.status !== 'true') {
+    // Agar status false aaya toh error
+    if (data.status === false || data.status === 'false') {
       return res.status(500).json({
         error: data.message || 'Payment creation failed',
         detail: data
       });
     }
 
+    // Order Firestore mein save karo
     await db.collection('pending_orders').doc(orderId).set({
       uid: uid,
       amount: amount,
@@ -126,7 +133,8 @@ app.post('/api/wallet/createOrder', verifyToken, async (req, res) => {
       createdAt: Date.now()
     });
 
-    const paymentUrl = data.result?.payment_url || data.data?.payment_url || data.payment_url;
+    // Payment URL nikalo
+    const paymentUrl = data.result?.payment_url || data.payment_url || data.data?.payment_url;
 
     return res.json({
       success: true,
@@ -162,7 +170,7 @@ app.post('/api/wallet/verifyOrder', verifyToken, async (req, res) => {
     }
 
     const formData = new URLSearchParams();
-    formData.append('api_secret', TRANZUPI_API_SECRET);
+    formData.append('user_token', TRANZUPI_USER_TOKEN);
     formData.append('order_id', orderId);
 
     const response = await axios.post(
@@ -175,9 +183,10 @@ app.post('/api/wallet/verifyOrder', verifyToken, async (req, res) => {
     );
 
     const data = response.data;
-    const payStatus = data.status || (data.result ? data.result.status : '');
+    const payStatus = data.status || data.result?.status || '';
 
-    if (payStatus === 'completed' || payStatus === 'SUCCESS' || payStatus === 'PAID') {
+    // Status check karo
+    if (payStatus === 'COMPLETED' || payStatus === 'completed' || payStatus === 'SUCCESS' || payStatus === 'PAID') {
       await db.collection('users').doc(uid).update({
         balance: admin.firestore.FieldValue.increment(orderData.amount),
         transactions: admin.firestore.FieldValue.arrayUnion({
@@ -213,7 +222,7 @@ app.post('/api/webhook', async (req, res) => {
     const orderId = body.order_id || body.orderId;
     const status = body.status;
 
-    if (status === 'completed' || status === 'PAID' || status === 'SUCCESS') {
+    if (status === 'COMPLETED' || status === 'completed' || status === 'PAID' || status === 'SUCCESS') {
       const orderDoc = await db.collection('pending_orders').doc(orderId).get();
       if (orderDoc.exists) {
         const orderData = orderDoc.data();
@@ -246,5 +255,5 @@ app.post('/api/webhook', async (req, res) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log('Server started on port ' + PORT);
-  console.log('TRANZUPI_MOBILE:', TRANZUPI_MOBILE);
+  console.log('TranzUPI Mobile:', TRANZUPI_MOBILE);
 });
