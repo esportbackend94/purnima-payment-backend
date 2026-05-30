@@ -25,10 +25,10 @@ admin.initializeApp({
 
 const db = admin.firestore();
 
-// TranzUPI Keys
-const TRANZUPI_API_KEY = "766f3a89f4b64a5635e4f3c847c5d5fa";
-const TRANZUPI_SECRET = "766f3a89f4b64a5635e4f3c847c5d5fa";
-const TRANZUPI_MERCHANT_ID = "I5tfVyxRwxp217574019";
+// TranzUPI Config
+// YAHAN APNA USER TOKEN DAALO (API Keys page se)
+const TRANZUPI_USER_TOKEN = "766f3a89f4b64a5635e4f3c847c5d5fa";
+const TRANZUPI_MOBILE = "9928492158";
 
 // Token Verify
 async function verifyToken(req, res, next) {
@@ -42,7 +42,9 @@ async function verifyToken(req, res, next) {
     req.uid = decoded.uid;
     next();
   } catch (err) {
-    return res.status(401).json({ error: 'Invalid token: ' + err.message });
+    return res.status(401).json({ 
+      error: 'Invalid token: ' + err.message 
+    });
   }
 }
 
@@ -61,33 +63,43 @@ app.post('/api/wallet/createOrder', verifyToken, async (req, res) => {
     const uid = req.uid;
 
     if (!amount || amount < 10) {
-      return res.status(400).json({ error: 'Minimum amount Rs.10' });
+      return res.status(400).json({ 
+        error: 'Minimum amount Rs.10' 
+      });
     }
 
+    // TranzUPI API Call
+    const formData = new URLSearchParams();
+    formData.append('user_token', TRANZUPI_USER_TOKEN);
+    formData.append('customer_mobile', TRANZUPI_MOBILE);
+    formData.append('amount', amount.toString());
+    formData.append('order_id', orderId);
+    formData.append('redirect_url', 'https://purnima-esport.web.app');
+    formData.append('remark1', 'Wallet Recharge');
+    formData.append('remark2', userName || 'User');
+
     const response = await axios.post(
-      'https://api.tranzupi.com/v1/order/create',
-      {
-        merchant_id: TRANZUPI_MERCHANT_ID,
-        order_id: orderId,
-        amount: amount,
-        currency: 'INR',
-        customer_name: userName || 'User',
-        customer_email: userEmail || 'user@gmail.com',
-        redirect_url: 'https://purnima-esport.web.app',
-        webhook_url: 'https://purnima-payment-backend.onrender.com/api/webhook'
-      },
+      'https://tranzupi.com/api/create-order',
+      formData.toString(),
       {
         headers: {
-          'x-api-key': TRANZUPI_API_KEY,
-          'x-api-secret': TRANZUPI_SECRET,
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/x-www-form-urlencoded'
         },
         timeout: 15000
       }
     );
 
     const data = response.data;
+    console.log('TranzUPI Response:', data);
 
+    if (!data.status) {
+      return res.status(500).json({ 
+        error: data.message || 'Payment creation failed',
+        detail: data
+      });
+    }
+
+    // Order Firestore mein save karo
     await db.collection('pending_orders').doc(orderId).set({
       uid: uid,
       amount: amount,
@@ -99,8 +111,9 @@ app.post('/api/wallet/createOrder', verifyToken, async (req, res) => {
     return res.json({
       success: true,
       orderId: orderId,
-      qrData: data.upi_string || data.qr_data || data.payment_url || data.upi_url,
-      upiId: data.upi_id || data.vpa || 'purnima@upi'
+      paymentUrl: data.result.payment_url,
+      qrData: data.result.payment_url,
+      upiId: 'Pay via Link'
     });
 
   } catch (err) {
@@ -118,7 +131,10 @@ app.post('/api/wallet/verifyOrder', verifyToken, async (req, res) => {
     const { orderId } = req.body;
     const uid = req.uid;
 
-    const orderDoc = await db.collection('pending_orders').doc(orderId).get();
+    const orderDoc = await db
+      .collection('pending_orders')
+      .doc(orderId)
+      .get();
     
     if (!orderDoc.exists) {
       return res.json({ status: 'NOT_FOUND' });
@@ -130,20 +146,29 @@ app.post('/api/wallet/verifyOrder', verifyToken, async (req, res) => {
       return res.json({ status: 'PAID' });
     }
 
-    const response = await axios.get(
-      `https://api.tranzupi.com/v1/order/status/${orderId}`,
+    // TranzUPI se status check
+    const formData = new URLSearchParams();
+    formData.append('user_token', TRANZUPI_USER_TOKEN);
+    formData.append('order_id', orderId);
+
+    const response = await axios.post(
+      'https://tranzupi.com/api/check-order',
+      formData.toString(),
       {
         headers: {
-          'x-api-key': TRANZUPI_API_KEY,
-          'x-api-secret': TRANZUPI_SECRET
+          'Content-Type': 'application/x-www-form-urlencoded'
         },
         timeout: 10000
       }
     );
 
-    const payStatus = response.data.status;
+    const data = response.data;
+    console.log('Check Order Response:', data);
 
-    if (payStatus === 'PAID' || payStatus === 'SUCCESS') {
+    const payStatus = data.result ? data.result.status : '';
+
+    if (payStatus === 'completed' || payStatus === 'SUCCESS' || payStatus === 'PAID') {
+      
       await db.collection('users').doc(uid).update({
         balance: admin.firestore.FieldValue.increment(orderData.amount),
         transactions: admin.firestore.FieldValue.arrayUnion({
@@ -162,7 +187,10 @@ app.post('/api/wallet/verifyOrder', verifyToken, async (req, res) => {
       return res.json({ status: 'PAID' });
     }
 
-    return res.json({ status: 'PENDING' });
+    return res.json({ 
+      status: 'PENDING',
+      raw: data
+    });
 
   } catch (err) {
     console.log('VerifyOrder Error:', err.message);
@@ -174,11 +202,16 @@ app.post('/api/wallet/verifyOrder', verifyToken, async (req, res) => {
 app.post('/api/webhook', async (req, res) => {
   try {
     const body = req.body;
+    console.log('Webhook received:', body);
+    
     const orderId = body.order_id || body.orderId;
     const status = body.status;
 
-    if (status === 'PAID' || status === 'SUCCESS') {
-      const orderDoc = await db.collection('pending_orders').doc(orderId).get();
+    if (status === 'completed' || status === 'PAID' || status === 'SUCCESS') {
+      const orderDoc = await db
+        .collection('pending_orders')
+        .doc(orderId)
+        .get();
       
       if (orderDoc.exists) {
         const orderData = orderDoc.data();
@@ -198,6 +231,8 @@ app.post('/api/webhook', async (req, res) => {
             status: 'PAID',
             paidAt: Date.now()
           });
+
+          console.log('Payment processed:', orderId);
         }
       }
     }
@@ -205,6 +240,7 @@ app.post('/api/webhook', async (req, res) => {
     res.json({ success: true });
 
   } catch (err) {
+    console.log('Webhook Error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
