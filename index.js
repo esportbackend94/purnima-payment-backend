@@ -118,11 +118,20 @@ app.post('/api/wallet/createOrder', verifyToken, async (req, res) => {
 
   } catch (err) {
     console.log('CreateOrder Error:', err.message);
+    
+    if (err.response && err.response.status === 503) {
+      return res.status(503).json({ 
+        error: 'TranzUPI server is down. Please try after 30 minutes.',
+        detail: 'Service Unavailable'
+      });
+    }
+    
     return res.status(500).json({ 
       error: err.message,
       detail: err.response ? err.response.data : null
     });
   }
+
 });
 
 // VERIFY ORDER
