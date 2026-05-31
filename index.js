@@ -6,7 +6,6 @@ const admin = require('firebase-admin');
 
 const app = express();
 
-// ===== CORS - ALLOW ALL FOR TESTING (Production mein restrict karna) =====
 app.use(cors({
   origin: '*',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
@@ -24,7 +23,7 @@ const PORT = process.env.PORT || 5000;
 const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT;
 
 if (!serviceAccountJson) {
-  console.error("❌ CRITICAL: FIREBASE_SERVICE_ACCOUNT missing!");
+  console.error("CRITICAL: FIREBASE_SERVICE_ACCOUNT env var missing!");
   process.exit(1);
 }
 
@@ -32,21 +31,25 @@ try {
   admin.initializeApp({
     credential: admin.credential.cert(JSON.parse(serviceAccountJson))
   });
-  console.log("✅ Firebase Admin connected");
+  console.log("Firebase Admin connected successfully");
 } catch (err) {
-  console.error("❌ Firebase init failed:", err.message);
+  console.error("Firebase init failed:", err.message);
   process.exit(1);
 }
 
 const db = admin.firestore();
 
-// ===== CONFIG =====
-const TRANZUPI_TOKEN = process.env.TRANZUPI_USER_TOKEN || process.env.TRANZUPI_API_SECRET;
-const TRANZUPI_MOBILE = process.env.TRANZUPI_MOBILE || '9999999999';
+// ===== CONFIG (Render env vars se match karta hai) =====
+const TRANZUPI_TOKEN = process.env.TRANZUPI_USER_TOKEN;
+const TRANZUPI_BASE_URL = process.env.TRANZUPI_BASE_URL || 'https://tranzupi.com';
+const DEFAULT_CUSTOMER_MOBILE = process.env.CUSTOMER_MOBILE || '9999999999';
 
 if (!TRANZUPI_TOKEN) {
-  console.error("❌ WARNING: TRANZUPI_USER_TOKEN missing!");
+  console.error("WARNING: TRANZUPI_USER_TOKEN env var missing! Payment will not work.");
 }
+
+console.log("TranzUPI Base URL:", TRANZUPI_BASE_URL);
+console.log("TranzUPI Token configured:", TRANZUPI_TOKEN ? "YES" : "NO");
 
 // ===== HELPER: TranzUPI API Call =====
 async function callTranzUPI(endpoint, params) {
@@ -57,10 +60,12 @@ async function callTranzUPI(endpoint, params) {
     }
   }
 
-  console.log(`📡 TranzUPI: ${endpoint}`);
-  
+  const url = `${TRANZUPI_BASE_URL}${endpoint}`;
+  console.log(`TranzUPI Request -> ${url}`);
+  console.log('Params:', Object.fromEntries(payload));
+
   try {
-    const response = await axios.post(`https://tranzupi.com${endpoint}`, payload, {
+    const response = await axios.post(url, payload, {
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -68,15 +73,15 @@ async function callTranzUPI(endpoint, params) {
       },
       timeout: 15000
     });
-    
-    console.log(`✅ TranzUPI Response:`, JSON.stringify(response.data, null, 2));
+
+    console.log(`TranzUPI Response (${endpoint}):`, JSON.stringify(response.data, null, 2));
     return response.data;
-    
+
   } catch (error) {
-    console.error(`❌ TranzUPI Error (${endpoint}):`, error.message);
+    console.error(`TranzUPI Error (${endpoint}):`, error.message);
     if (error.response) {
-      console.error('Status:', error.response.status);
-      console.error('Data:', error.response.data);
+      console.error('HTTP Status:', error.response.status);
+      console.error('Response:', error.response.data);
     }
     throw error;
   }
@@ -87,9 +92,8 @@ const authenticateUser = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Unauthorized: Missing token' });
+      return res.status(401).json({ error: 'Unauthorized: Missing Bearer token' });
     }
-
     const idToken = authHeader.split('Bearer ')[1];
     const decodedToken = await admin.auth().verifyIdToken(idToken);
     req.user = decodedToken;
@@ -102,13 +106,13 @@ const authenticateUser = async (req, res, next) => {
 
 // ===== ROUTES =====
 
-// Health check
 app.get('/', (req, res) => {
-  res.json({ 
-    status: "ok", 
+  res.json({
+    status: 'ok',
     time: new Date().toISOString(),
-    firebase: "connected",
-    tranzupi: TRANZUPI_TOKEN ? "configured" : "missing"
+    firebase: 'connected',
+    tranzupi_token: TRANZUPI_TOKEN ? 'configured' : 'MISSING',
+    tranzupi_url: TRANZUPI_BASE_URL
   });
 });
 
@@ -119,10 +123,10 @@ app.get('/health', (req, res) => {
 // ===== CREATE ORDER =====
 app.post('/api/wallet/createOrder', authenticateUser, async (req, res) => {
   try {
-    console.log('📥 CreateOrder called by:', req.user.uid);
-    console.log('📥 Body:', req.body);
+    console.log('CreateOrder -> User:', req.user.uid);
+    console.log('CreateOrder -> Body:', req.body);
 
-    const { amount, orderId, userId, userEmail, userName } = req.body;
+    const { amount, orderId, userId, userEmail, userName, customerMobile } = req.body;
 
     if (!amount || !orderId || !userId) {
       return res.status(400).json({ error: 'Missing: amount, orderId, userId' });
@@ -137,9 +141,13 @@ app.post('/api/wallet/createOrder', authenticateUser, async (req, res) => {
       return res.status(400).json({ error: 'Invalid amount' });
     }
 
-    // Call TranzUPI
+    // Customer mobile: frontend se bhejo, warna CUSTOMER_MOBILE env var use hoga
+    const mobile = customerMobile
+      ? String(customerMobile).replace(/\D/g, '')
+      : DEFAULT_CUSTOMER_MOBILE;
+
     const tranzParams = {
-      customer_mobile: TRANZUPI_MOBILE,
+      customer_mobile: mobile,
       user_token: TRANZUPI_TOKEN,
       amount: parsedAmount.toFixed(2),
       order_id: orderId,
@@ -150,33 +158,29 @@ app.post('/api/wallet/createOrder', authenticateUser, async (req, res) => {
 
     const tranzResponse = await callTranzUPI('/api/create-order', tranzParams);
 
-    const isSuccess = tranzResponse.status === true || 
-                      tranzResponse.status === 'success' || 
-                      tranzResponse.success === true;
+    const isSuccess = tranzResponse.status === true || tranzResponse.status === 'success';
 
     if (!isSuccess) {
-      console.error('TranzUPI failed:', tranzResponse);
-      return res.status(400).json({ 
+      console.error('TranzUPI create-order failed:', JSON.stringify(tranzResponse));
+      return res.status(400).json({
         error: tranzResponse.message || 'TranzUPI order creation failed',
-        details: tranzResponse 
+        tranzupiResponse: tranzResponse
       });
     }
 
-    const result = tranzResponse.result || tranzResponse.data || tranzResponse;
+    const result = tranzResponse.result || tranzResponse.data || {};
     const paymentUrl = result.payment_url || result.paymentUrl;
-    const upiId = result.upi_id || result.upiId || 'payment@tranzupi';
 
     if (!paymentUrl) {
-      return res.status(500).json({ 
-        error: 'Payment URL not received from TranzUPI',
-        response: tranzResponse 
+      return res.status(500).json({
+        error: 'Payment URL nahi mila TranzUPI se',
+        tranzupiResponse: tranzResponse
       });
     }
 
-    // Save to Firestore
     await db.collection('orders').doc(orderId).set({
-      orderId: orderId,
-      userId: userId,
+      orderId,
+      userId,
       amount: parsedAmount,
       status: 'PENDING',
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -185,18 +189,17 @@ app.post('/api/wallet/createOrder', authenticateUser, async (req, res) => {
 
     return res.json({
       success: true,
+      paymentUrl,
       qrData: paymentUrl,
-      paymentUrl: paymentUrl,
-      orderId: orderId,
-      upiId: upiId,
+      orderId,
       status: 'PENDING'
     });
 
   } catch (err) {
-    console.error('❌ CreateOrder Error:', err.message);
+    console.error('CreateOrder Error:', err.message);
     if (err.response) {
-      console.error('TranzUPI status:', err.response.status);
-      console.error('TranzUPI data:', err.response.data);
+      console.error('TranzUPI HTTP Status:', err.response.status);
+      console.error('TranzUPI Data:', err.response.data);
     }
     return res.status(500).json({ error: err.message || 'Server error' });
   }
@@ -221,40 +224,37 @@ app.post('/api/wallet/verifyOrder', authenticateUser, async (req, res) => {
     const orderData = orderDoc.data();
 
     if (orderData.userId !== req.user.uid) {
-      return res.status(403).json({ error: 'Unauthorized order access' });
+      return res.status(403).json({ error: 'Unauthorized: order belongs to different user' });
     }
 
     if (orderData.status === 'PAID') {
-      return res.json({ 
-        status: 'PAID', 
-        message: 'Order already processed' 
-      });
+      return res.json({ status: 'PAID', message: 'Order already processed' });
     }
 
-    // Re-verify with TranzUPI
     const verifyParams = {
       user_token: TRANZUPI_TOKEN,
       order_id: orderId
     };
 
     const verifyResponse = await callTranzUPI('/api/check-order-status', verifyParams);
-    
-    const result = verifyResponse.result || verifyResponse;
-    const isPaid = verifyResponse.status === 'COMPLETED' && 
-                   (result.status === 'SUCCESS' || result.txnStatus === 'COMPLETED');
+
+    // FIXED: txnStatus 'SUCCESS' hota hai (docs ke according)
+    const result = verifyResponse.result || {};
+    const isPaid = verifyResponse.status === 'COMPLETED' &&
+                   result.txnStatus === 'SUCCESS';
 
     if (isPaid) {
-      // Credit wallet
       const userRef = db.collection('users').doc(orderData.userId);
+
       await db.runTransaction(async (t) => {
         const userDoc = await t.get(userRef);
-        if (!userDoc.exists) throw new Error('User not found');
+        if (!userDoc.exists) throw new Error('User not found in Firestore');
+
+        const freshOrder = await t.get(orderDocRef);
+        if (freshOrder.data().status === 'PAID') return;
 
         const currentBalance = userDoc.data().balance || 0;
         const newBalance = currentBalance + orderData.amount;
-
-        const orderSnap = await t.get(orderDocRef);
-        if (orderSnap.data().status === 'PAID') return;
 
         t.update(userRef, {
           balance: newBalance,
@@ -263,7 +263,7 @@ app.post('/api/wallet/verifyOrder', authenticateUser, async (req, res) => {
             amount: orderData.amount,
             msg: `Wallet Recharge (Order: ${orderId})`,
             date: Date.now(),
-            orderId: orderId
+            orderId
           })
         });
 
@@ -274,130 +274,110 @@ app.post('/api/wallet/verifyOrder', authenticateUser, async (req, res) => {
         });
       });
 
-      return res.json({ 
-        status: 'PAID', 
-        message: 'Payment verified and wallet credited' 
-      });
+      return res.json({ status: 'PAID', message: 'Payment verified and wallet credited' });
     }
 
-    return res.json({ 
-      status: 'PENDING', 
+    return res.json({
+      status: 'PENDING',
       message: 'Payment still pending',
       tranzupiStatus: verifyResponse.status,
-      result: result
+      txnStatus: result.txnStatus || 'unknown'
     });
 
   } catch (err) {
-    console.error('❌ Verify Error:', err.message);
+    console.error('VerifyOrder Error:', err.message);
     return res.status(500).json({ error: err.message || 'Server error' });
   }
 });
 
 // ===== WEBHOOK =====
 app.post('/api/wallet/webhook', async (req, res) => {
-  console.log('🔔 Webhook received:', new Date().toISOString());
-  console.log('📥 Body:', req.body);
-  console.log('📥 Content-Type:', req.headers['content-type']);
+  console.log('Webhook received at:', new Date().toISOString());
+  console.log('Webhook body:', req.body);
 
-  // ALWAYS return 200 OK immediately (TranzUPI ko retry नहीं करने देना)
+  // TranzUPI: HAMESHA 200 OK bhejo warna 5 baar retry karega
   res.set('Content-Type', 'text/plain');
   res.status(200).send('OK');
 
-  // Background processing
-  try {
-    const { order_id, amount, status: webhookStatus, utr } = req.body;
-
-    if (!order_id) {
-      console.log('⚠️ Webhook missing order_id');
-      return;
-    }
-
-    const orderDocRef = db.collection('orders').doc(order_id);
-    const orderDoc = await orderDocRef.get();
-
-    if (!orderDoc.exists) {
-      console.log('⚠️ Order not found:', order_id);
-      return;
-    }
-
-    const orderData = orderDoc.data();
-
-    // Idempotency check - already paid?
-    if (orderData.status === 'PAID') {
-      console.log('✅ Order already paid, ignoring duplicate');
-      return;
-    }
-
-    // CRITICAL: Re-verify with TranzUPI before crediting
-    console.log('🔍 Re-verifying payment...');
-    
-    const verifyParams = {
-      user_token: TRANZUPI_TOKEN,
-      order_id: order_id
-    };
-
-    let isActuallyPaid = false;
-    
+  setImmediate(async () => {
     try {
-      const verifyResponse = await callTranzUPI('/api/check-order-status', verifyParams);
-      const result = verifyResponse.result || verifyResponse;
-      
-      isActuallyPaid = (
-        verifyResponse.status === 'COMPLETED' &&
-        (result.status === 'SUCCESS' || result.txnStatus === 'COMPLETED')
-      );
-      
-      console.log('Re-verification result:', isActuallyPaid ? 'PAID' : 'NOT PAID');
-      
-    } catch (verifyError) {
-      console.error('❌ Re-verification failed:', verifyError.message);
-      return; // Don't credit if verification fails
-    }
+      const { order_id, utr } = req.body;
 
-    if (isActuallyPaid) {
-      const userRef = db.collection('users').doc(orderData.userId);
-      await db.runTransaction(async (t) => {
-        const userDoc = await t.get(userRef);
-        if (!userDoc.exists) throw new Error('User not found');
+      if (!order_id) {
+        console.log('Webhook: Missing order_id');
+        return;
+      }
 
-        const currentBalance = userDoc.data().balance || 0;
-        const newBalance = currentBalance + orderData.amount;
+      const orderDocRef = db.collection('orders').doc(order_id);
+      const orderDoc = await orderDocRef.get();
 
-        const orderSnap = await t.get(orderDocRef);
-        if (orderSnap.data().status === 'PAID') return;
+      if (!orderDoc.exists) {
+        console.log('Webhook: Order not found:', order_id);
+        return;
+      }
 
-        t.update(userRef, {
-          balance: newBalance,
-          transactions: admin.firestore.FieldValue.arrayUnion({
-            type: 'credit',
-            amount: orderData.amount,
-            msg: `Webhook Recharge (Order: ${order_id})`,
-            date: Date.now(),
-            orderId: order_id,
-            utr: utr || 'N/A'
-          })
+      const orderData = orderDoc.data();
+
+      if (orderData.status === 'PAID') {
+        console.log('Webhook: Already paid, skipping:', order_id);
+        return;
+      }
+
+      console.log('Webhook: Re-verifying with TranzUPI...');
+      const verifyParams = {
+        user_token: TRANZUPI_TOKEN,
+        order_id
+      };
+
+      let isActuallyPaid = false;
+      try {
+        const verifyResponse = await callTranzUPI('/api/check-order-status', verifyParams);
+        const result = verifyResponse.result || {};
+        isActuallyPaid = verifyResponse.status === 'COMPLETED' && result.txnStatus === 'SUCCESS';
+        console.log('Webhook re-verify:', isActuallyPaid ? 'PAID' : 'NOT PAID');
+      } catch (verifyError) {
+        console.error('Webhook re-verify failed:', verifyError.message);
+        return;
+      }
+
+      if (isActuallyPaid) {
+        const userRef = db.collection('users').doc(orderData.userId);
+        await db.runTransaction(async (t) => {
+          const userDoc = await t.get(userRef);
+          if (!userDoc.exists) throw new Error('User not found');
+
+          const freshOrder = await t.get(orderDocRef);
+          if (freshOrder.data().status === 'PAID') return;
+
+          const currentBalance = userDoc.data().balance || 0;
+          t.update(userRef, {
+            balance: currentBalance + orderData.amount,
+            transactions: admin.firestore.FieldValue.arrayUnion({
+              type: 'credit',
+              amount: orderData.amount,
+              msg: `Wallet Recharge via Webhook (Order: ${order_id})`,
+              date: Date.now(),
+              orderId: order_id,
+              utr: utr || 'N/A'
+            })
+          });
+          t.update(orderDocRef, {
+            status: 'PAID',
+            paidAt: admin.firestore.FieldValue.serverTimestamp(),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+          });
         });
+        console.log('Webhook: Wallet credited for order:', order_id);
+      }
 
-        t.update(orderDocRef, {
-          status: 'PAID',
-          paidAt: admin.firestore.FieldValue.serverTimestamp(),
-          updatedAt: admin.firestore.FieldValue.serverTimestamp()
-        });
-      });
-
-      console.log('✅ Wallet credited via webhook for order:', order_id);
-    } else {
-      console.log('⚠️ Payment not confirmed, skipping credit');
+    } catch (err) {
+      console.error('Webhook processing error:', err.message);
     }
-
-  } catch (err) {
-    console.error('❌ Webhook processing error:', err.message);
-    // Already sent 200, so TranzUPI won't retry
-  }
+  });
 });
 
 // ===== ERROR HANDLERS =====
-process.on('unhandledRejection', (reason, promise) => {
+process.on('unhandledRejection', (reason) => {
   console.error('Unhandled Rejection:', reason);
 });
 
@@ -413,9 +393,9 @@ app.use((err, req, res, next) => {
 
 // ===== START SERVER =====
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`📋 Health: http://localhost:${PORT}/health`);
-  console.log(`🔔 Webhook: POST ${PORT}/api/wallet/webhook`);
+  console.log(`Server started on port ${PORT}`);
+  console.log(`Health: http://localhost:${PORT}/health`);
+  console.log(`Webhook URL: POST /api/wallet/webhook`);
 });
 
 module.exports = app;
