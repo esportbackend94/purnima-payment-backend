@@ -7,7 +7,6 @@ const admin = require('firebase-admin');
 const app = express();
 app.use(cors());
 app.use(express.json());
-// Webhook और URL-Encoded रिक्वेस्ट पार्स करने के लिए आवश्यक Middleware
 app.use(express.urlencoded({ extended: true }));
 
 const PORT = process.env.PORT || 5000;
@@ -72,26 +71,28 @@ app.post('/api/wallet/createOrder', authenticateUser, async (req, res) => {
       return res.status(403).json({ error: 'Forbidden: UID mismatch' });
     }
 
-    // Config parameters from Env variables
     const userToken = process.env.TRANZUPI_USER_TOKEN || process.env.TRANZUPI_API_SECRET;
     const mobile = process.env.TRANZUPI_MOBILE || '9999999999';
-    const baseUrl = 'https://tranzupi.com'; // Fixed base URL
+    const baseUrl = 'https://tranzupi.com';
 
-    // URL-Encoded फॉर्मेट में डेटा तैयार करना (डॉक्यूमेंटेशन के अनुसार)
     const params = new URLSearchParams();
     params.append('customer_mobile', mobile);
     params.append('user_token', userToken);
     params.append('amount', parseFloat(amount).toFixed(2));
     params.append('order_id', orderId);
-    params.append('redirect_url', `https://purnima-esport.web.app`); // Your redirection URL
+    params.append('redirect_url', `https://purnima-esport.web.app`);
     params.append('remark1', 'Wallet Recharge');
     params.append('remark2', userName || 'Gamer');
 
     console.log(`Sending order create request to TranzUPI for order ${orderId} amount ${amount}`);
 
+    // 🔥 FIX: Added User-Agent and Accept Headers to bypass firewall blocks
     const tranzResponse = await axios.post(`${baseUrl}/api/create-order`, params, {
       headers: {
-        'Content-Type': 'application/x-www-form-urlencoded'
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'Accept': 'application/json, text/plain, */*',
+        'Accept-Language': 'en-US,en;q=0.9'
       }
     });
     
@@ -156,22 +157,24 @@ app.post('/api/wallet/verifyOrder', authenticateUser, async (req, res) => {
     const userToken = process.env.TRANZUPI_USER_TOKEN || process.env.TRANZUPI_API_SECRET;
     const baseUrl = 'https://tranzupi.com';
 
-    // Verify status via URL-Encoded check status API
     const params = new URLSearchParams();
     params.append('user_token', userToken);
     params.append('order_id', orderId);
 
     console.log(`Checking transaction status on TranzUPI for order: ${orderId}`);
     
+    // 🔥 FIX: Added User-Agent and Accept Headers to bypass firewall blocks
     const checkResponse = await axios.post(`${baseUrl}/api/check-order-status`, params, {
       headers: {
-        'Content-Type': 'application/x-www-form-urlencoded'
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'Accept': 'application/json, text/plain, */*',
+        'Accept-Language': 'en-US,en;q=0.9'
       }
     });
     
     const resData = checkResponse.data;
 
-    // डॉक्यूमेंटेशन के अनुसार Success चेक करना (status: COMPLETED और result.status: SUCCESS)
     const isPaid = (
       resData.status === 'COMPLETED' &&
       resData.result &&
@@ -223,10 +226,9 @@ app.post('/api/wallet/verifyOrder', authenticateUser, async (req, res) => {
   }
 });
 
-// === Endpoint 3: Webhook (Callback handling) ===
+// === Endpoint 3: Webhook ===
 app.post('/api/wallet/webhook', async (req, res) => {
   try {
-    // TranzUPI वेबहुक से URL-Encoded डेटा भेजता है
     const { order_id, status } = req.body;
     console.log(`Webhook received: Order: ${order_id}, Status: ${status}`);
 
@@ -246,20 +248,23 @@ app.post('/api/wallet/webhook', async (req, res) => {
     const orderData = orderDoc.data();
     if (orderData.status === 'PAID') {
       res.setHeader('Content-Type', 'text/plain');
-      return res.status(200).send('OK'); // Already processed
+      return res.status(200).send('OK');
     }
 
     const userToken = process.env.TRANZUPI_USER_TOKEN || process.env.TRANZUPI_API_SECRET;
     const baseUrl = 'https://tranzupi.com';
 
-    // Verify webhook data via check-status API to avoid fake payloads
     const params = new URLSearchParams();
     params.append('user_token', userToken);
     params.append('order_id', order_id);
 
+    // 🔥 FIX: Added User-Agent and Accept Headers to bypass firewall blocks
     const checkResponse = await axios.post(`${baseUrl}/api/check-order-status`, params, {
       headers: {
-        'Content-Type': 'application/x-www-form-urlencoded'
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'Accept': 'application/json, text/plain, */*',
+        'Accept-Language': 'en-US,en;q=0.9'
       }
     });
 
@@ -303,7 +308,6 @@ app.post('/api/wallet/webhook', async (req, res) => {
       console.log(`Webhook updated payment status successfully for ${order_id}`);
     }
 
-    // डॉक्यूमेंटेशन के अनुसार रिप्लाई हमेशा text/plain 'OK' होना चाहिए
     res.setHeader('Content-Type', 'text/plain');
     return res.status(200).send('OK');
   } catch (error) {
