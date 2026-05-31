@@ -5,13 +5,21 @@ require('dotenv').config();
 const admin = require('firebase-admin');
 
 const app = express();
-app.use(cors());
+
+// ===== CORS FIX =====
+app.use(cors({
+  origin: '*',  // Temporary - sabko allow karo debugging ke liye
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
+}));
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 const PORT = process.env.PORT || 5000;
 
-// ===== FIREBASE INIT =====
+// ===== FIREBASE =====
 try {
   const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
   admin.initializeApp({
@@ -20,33 +28,35 @@ try {
   console.log("✅ Firebase connected");
 } catch (err) {
   console.error("❌ Firebase Error:", err.message);
-  // Server chalne do, baad mein fix karenge
+  process.exit(1);
 }
 
-const db = admin.firestore ? admin.firestore() : null;
+const db = admin.firestore();
 
 // ===== CONFIG =====
 const TRANZUPI_TOKEN = process.env.TRANZUPI_USER_TOKEN;
 const TRANZUPI_MOBILE = process.env.TRANZUPI_MOBILE || '9999999999';
 
-// ===== HEALTH CHECK (Render ke liye MUST) =====
+// ===== ROUTES =====
 app.get('/', (req, res) => {
   res.json({ status: "ok", time: new Date().toISOString() });
 });
 
-app.get('/health', (req, res) => {
-  res.status(200).send('OK');
-});
+app.get('/health', (req, res) => res.status(200).send('OK'));
 
-// ===== AUTH MIDDLEWARE =====
+// Auth middleware
 const authMiddleware = async (req, res, next) => {
   try {
-    const token = req.headers.authorization?.split('Bearer ')[1];
-    if (!token) return res.status(401).json({ error: 'No token' });
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Missing token' });
+    }
+    const token = authHeader.split('Bearer ')[1];
     const decoded = await admin.auth().verifyIdToken(token);
     req.user = decoded;
     next();
   } catch (e) {
+    console.error('Auth error:', e.message);
     res.status(401).json({ error: 'Invalid token' });
   }
 };
@@ -54,10 +64,17 @@ const authMiddleware = async (req, res, next) => {
 // ===== CREATE ORDER =====
 app.post('/api/wallet/createOrder', authMiddleware, async (req, res) => {
   try {
+    console.log('📥 CreateOrder called by:', req.user.uid);
+    console.log('📥 Body:', req.body);
+
     const { amount, orderId, userId } = req.body;
     
     if (!amount || !orderId || !userId) {
-      return res.status(400).json({ error: 'Missing fields' });
+      return res.status(400).json({ error: 'Missing: amount, orderId, userId' });
+    }
+
+    if (req.user.uid !== userId) {
+      return res.status(403).json({ error: 'UID mismatch' });
     }
 
     // TranzUPI call
@@ -69,27 +86,28 @@ app.post('/api/wallet/createOrder', authMiddleware, async (req, res) => {
     payload.append('redirect_url', 'https://purnima-esport.web.app');
     payload.append('remark1', 'Wallet Recharge');
 
+    console.log('📤 Calling TranzUPI...');
+
     const response = await axios.post('https://tranzupi.com/api/create-order', payload, {
       headers: { 
         'Content-Type': 'application/x-www-form-urlencoded',
         'User-Agent': 'Mozilla/5.0'
       },
-      timeout: 10000
+      timeout: 15000
     });
+
+    console.log('📥 TranzUPI response:', response.data);
 
     const data = response.data;
     
     if (data.status === true || data.success === true) {
       const result = data.result || data;
       
-      // Save to Firestore
-      if (db) {
-        await db.collection('orders').doc(orderId).set({
-          orderId, userId, amount: parseFloat(amount),
-          status: 'PENDING',
-          createdAt: admin.firestore.FieldValue.serverTimestamp()
-        });
-      }
+      await db.collection('orders').doc(orderId).set({
+        orderId, userId, amount: parseFloat(amount),
+        status: 'PENDING',
+        createdAt: admin.firestore.FieldValue.serverTimestamp()
+      });
 
       return res.json({
         success: true,
@@ -99,10 +117,17 @@ app.post('/api/wallet/createOrder', authMiddleware, async (req, res) => {
       });
     }
 
-    return res.status(400).json({ error: data.message || 'Failed' });
+    return res.status(400).json({ 
+      error: data.message || 'TranzUPI failed',
+      details: data 
+    });
 
   } catch (err) {
-    console.error('Create Order Error:', err.message);
+    console.error('❌ CreateOrder Error:', err.message);
+    if (err.response) {
+      console.error('TranzUPI status:', err.response.status);
+      console.error('TranzUPI data:', err.response.data);
+    }
     res.status(500).json({ error: err.message });
   }
 });
@@ -111,12 +136,18 @@ app.post('/api/wallet/createOrder', authMiddleware, async (req, res) => {
 app.post('/api/wallet/verifyOrder', authMiddleware, async (req, res) => {
   try {
     const { orderId } = req.body;
-    
-    // Check Firestore
-    let orderData = null;
-    if (db) {
-      const doc = await db.collection('orders').doc(orderId).get();
-      if (doc.exists) orderData = doc.data();
+    if (!orderId) return res.status(400).json({ error: 'Missing orderId' });
+
+    const orderDoc = await db.collection('orders').doc(orderId).get();
+    if (!orderDoc.exists) return res.status(404).json({ error: 'Order not found' });
+
+    const orderData = orderDoc.data();
+    if (orderData.userId !== req.user.uid) {
+      return res.status(403).json({ error: 'Unauthorized' });
+    }
+
+    if (orderData.status === 'PAID') {
+      return res.json({ status: 'PAID', message: 'Already processed' });
     }
 
     // Verify with TranzUPI
@@ -126,14 +157,14 @@ app.post('/api/wallet/verifyOrder', authMiddleware, async (req, res) => {
 
     const response = await axios.post('https://tranzupi.com/api/check-order-status', payload, {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      timeout: 10000
+      timeout: 15000
     });
 
     const result = response.data.result || response.data;
     const isPaid = response.data.status === 'COMPLETED' && 
                    (result.status === 'SUCCESS' || result.txnStatus === 'COMPLETED');
 
-    if (isPaid && orderData && orderData.status !== 'PAID') {
+    if (isPaid) {
       // Credit wallet
       const userRef = db.collection('users').doc(orderData.userId);
       await db.runTransaction(async (t) => {
@@ -154,24 +185,23 @@ app.post('/api/wallet/verifyOrder', authMiddleware, async (req, res) => {
     res.json({ status: isPaid ? 'PAID' : 'PENDING' });
 
   } catch (err) {
-    console.error('Verify Error:', err.message);
+    console.error('❌ Verify Error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
 
-// ===== WEBHOOK (CRITICAL - Plain Text 200) =====
+// ===== WEBHOOK =====
 app.post('/api/wallet/webhook', async (req, res) => {
-  console.log('Webhook received:', req.body);
+  console.log('🔔 Webhook:', req.body);
   
-  const { order_id, status } = req.body;
-
-  // ALWAYS return 200 OK first (TranzUPI ko retry नहीं करने देना)
+  // ALWAYS return 200 immediately
   res.set('Content-Type', 'text/plain');
   res.status(200).send('OK');
 
-  // Background mein process karo
+  // Process in background
   try {
-    if (!order_id || !db) return;
+    const { order_id } = req.body;
+    if (!order_id) return;
 
     const orderDoc = await db.collection('orders').doc(order_id).get();
     if (!orderDoc.exists) return;
@@ -190,8 +220,7 @@ app.post('/api/wallet/webhook', async (req, res) => {
     });
 
     const result = verifyRes.data.result || verifyRes.data;
-    const isPaid = verifyRes.data.status === 'COMPLETED' && 
-                   (result.status === 'SUCCESS');
+    const isPaid = verifyRes.data.status === 'COMPLETED' && result.status === 'SUCCESS';
 
     if (isPaid) {
       const userRef = db.collection('users').doc(orderData.userId);
@@ -203,24 +232,21 @@ app.post('/api/wallet/webhook', async (req, res) => {
           balance: newBal,
           transactions: admin.firestore.FieldValue.arrayUnion({
             type: 'credit', amount: orderData.amount,
-            msg: `Webhook Recharge ${order_id}`, date: Date.now()
+            msg: `Webhook ${order_id}`, date: Date.now()
           })
         });
         t.update(db.collection('orders').doc(order_id), { status: 'PAID' });
       });
-      console.log('Webhook processed successfully for', order_id);
     }
-
   } catch (err) {
     console.error('Webhook processing error:', err.message);
-    // Error ke baad bhi humne pehle hi 200 bhej diya tha
   }
 });
 
-// ===== ERROR HANDLER =====
+// Error handler
 app.use((err, req, res, next) => {
   console.error('Express Error:', err);
-  res.status(500).json({ error: 'Internal error' });
+  res.status(500).json({ error: 'Internal server error' });
 });
 
 app.listen(PORT, () => {
