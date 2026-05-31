@@ -1,17 +1,17 @@
 {
-  "name": "purnima-esports-backend",
+  "name": "purnima-payment-backend",
   "version": "1.0.0",
-  "description": "Backend service for Purnima Esports TranzUPI payment integration",
+  "description": "Secure payment backend for Purnima E-Sports using TranzUPI and Firebase Admin SDK",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "express": "^4.19.2",
-    "cors": "^2.8.5",
     "axios": "^1.7.2",
-    "firebase-admin": "^12.1.1",
-    "dotenv": "^16.4.5"
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "firebase-admin": "^12.1.1"
   },
   "engines": {
     "node": ">=18.0.0"
