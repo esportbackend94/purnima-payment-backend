@@ -10,12 +10,12 @@ app.use(express.json());
 
 const PORT = process.env.PORT || 5000;
 
- // === Firebase Admin SDK Initialization ===
+// === Firebase Admin SDK Initialization ===
 const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT;
 
 if (!serviceAccountJson) {
   console.error("❌ CRITICAL ERROR: FIREBASE_SERVICE_ACCOUNT environment variable is missing on Render!");
-  process.exit(1); // सर्वर को तुरंत बंद करें ताकि गलत कॉन्फ़िगरेशन का पता चले
+  process.exit(1);
 }
 
 try {
@@ -25,10 +25,19 @@ try {
   console.log("✅ Firebase Admin initialized successfully via Env Variable.");
 } catch (err) {
   console.error("❌ CRITICAL ERROR: Failed to parse or initialize Firebase Admin JSON:", err.message);
-  process.exit(1); // पार्सिंग फेल होने पर सर्वर बंद करें
+  process.exit(1);
 }
 
 const db = admin.firestore();
+
+// === Web Home Route (This stops "Cannot GET /" and shows a live status) ===
+app.get('/', (req, res) => {
+  res.json({
+    status: "active",
+    message: "Purnima E-Sports Payment Gateway Backend is running successfully!",
+    firebaseAdmin: "connected"
+  });
+});
 
 // === Middleware: Verify Firebase Auth Token ===
 const authenticateUser = async (req, res, next) => {
@@ -40,7 +49,7 @@ const authenticateUser = async (req, res, next) => {
   const idToken = authHeader.split('Bearer ')[1];
   try {
     const decodedToken = await admin.auth().verifyIdToken(idToken);
-    req.user = decodedToken; // Decoded object contains 'uid', 'email', etc.
+    req.user = decodedToken;
     next();
   } catch (error) {
     console.error('Firebase Auth verification failed:', error.message);
@@ -57,7 +66,6 @@ app.post('/api/wallet/createOrder', authenticateUser, async (req, res) => {
       return res.status(400).json({ error: 'Missing required parameters: amount, orderId, and userId' });
     }
 
-    // Token UID validation for security
     if (req.user.uid !== userId) {
       return res.status(403).json({ error: 'Forbidden: UID mismatch' });
     }
@@ -66,7 +74,6 @@ app.post('/api/wallet/createOrder', authenticateUser, async (req, res) => {
     const mobile = process.env.TRANZUPI_MOBILE;
     const baseUrl = process.env.TRANZUPI_BASE_URL || 'https://server.tranzupi.com';
 
-    // Prepare API Request to TranzUPI
     const payload = {
       api_secret: apiSecret,
       mobile: mobile,
@@ -74,22 +81,21 @@ app.post('/api/wallet/createOrder', authenticateUser, async (req, res) => {
       order_id: orderId,
       customer_name: userName || 'Gamer',
       customer_email: userEmail || 'user@gmail.com',
-      redirect_url: `https://purnima-esport.web.app` // Change this to your frontend URL
+      redirect_url: `https://purnima-esport.web.app`
     };
 
     console.log(`Sending order create request to TranzUPI for order ${orderId} amount ${amount}`);
 
-    const tranzResponse = await axios.post(`${baseUrl}/api/create_order`, payload);
+    // 🔥 FIX: Added .php to the API endpoint path because TranzUPI is PHP-based
+    const tranzResponse = await axios.post(`${baseUrl}/api/create_order.php`, payload);
     const resData = tranzResponse.data;
 
-    // Check if order is generated successfully
     if (resData.status === true || resData.status === 'success' || resData.success === true) {
       const gatewayData = resData.data || resData;
       
       const qrData = gatewayData.qr_data || gatewayData.qrData || gatewayData.payment_url || gatewayData.paymentUrl || `upi://pay?pa=${gatewayData.upi_id || gatewayData.upiId}&pn=PurnimaESports&am=${amount}&tr=${orderId}`;
       const upiId = gatewayData.upi_id || gatewayData.upiId || 'payment@tranzupi';
 
-      // Save order metadata as PENDING in Firestore
       await db.collection('orders').doc(orderId).set({
         orderId: orderId,
         userId: userId,
@@ -123,7 +129,6 @@ app.post('/api/wallet/verifyOrder', authenticateUser, async (req, res) => {
       return res.status(400).json({ error: 'Missing orderId parameter' });
     }
 
-    // 1. Fetch order details from Firestore
     const orderDocRef = db.collection('orders').doc(orderId);
     const orderDoc = await orderDocRef.get();
 
@@ -133,7 +138,6 @@ app.post('/api/wallet/verifyOrder', authenticateUser, async (req, res) => {
 
     const orderData = orderDoc.data();
 
-    // Prevent cross-user checks
     if (orderData.userId !== req.user.uid) {
       return res.status(403).json({ error: 'Unauthorized order access' });
     }
@@ -142,7 +146,6 @@ app.post('/api/wallet/verifyOrder', authenticateUser, async (req, res) => {
       return res.json({ status: 'PAID', message: 'Order was already successfully processed.' });
     }
 
-    // 2. Verify with TranzUPI check_status API
     const apiSecret = process.env.TRANZUPI_API_SECRET;
     const mobile = process.env.TRANZUPI_MOBILE;
     const baseUrl = process.env.TRANZUPI_BASE_URL || 'https://server.tranzupi.com';
@@ -154,7 +157,9 @@ app.post('/api/wallet/verifyOrder', authenticateUser, async (req, res) => {
     };
 
     console.log(`Checking transaction status on TranzUPI for order: ${orderId}`);
-    const checkResponse = await axios.post(`${baseUrl}/api/check_status`, payload);
+    
+    // 🔥 FIX: Added .php to the API endpoint path because TranzUPI is PHP-based
+    const checkResponse = await axios.post(`${baseUrl}/api/check_status.php`, payload);
     const resData = checkResponse.data;
 
     const gatewayData = resData.data || resData;
@@ -170,7 +175,6 @@ app.post('/api/wallet/verifyOrder', authenticateUser, async (req, res) => {
       const userRef = db.collection('users').doc(orderData.userId);
       const amount = orderData.amount;
 
-      // 3. SECURELY deposit balance inside database transaction to avoid double spending
       await db.runTransaction(async (transaction) => {
         const userDoc = await transaction.get(userRef);
         if (!userDoc.exists) {
@@ -185,7 +189,6 @@ app.post('/api/wallet/verifyOrder', authenticateUser, async (req, res) => {
           throw new Error('Order already paid!');
         }
 
-        // Add amount to balance and update transaction array
         transaction.update(userRef, {
           balance: newBalance,
           transactions: admin.firestore.FieldValue.arrayUnion({
@@ -196,7 +199,6 @@ app.post('/api/wallet/verifyOrder', authenticateUser, async (req, res) => {
           })
         });
 
-        // Mark order status as PAID
         transaction.update(orderDocRef, {
           status: 'PAID',
           updatedAt: admin.firestore.FieldValue.serverTimestamp()
@@ -214,7 +216,7 @@ app.post('/api/wallet/verifyOrder', authenticateUser, async (req, res) => {
   }
 });
 
-// === Endpoint 3: Webhook (For backup status notifications from TranzUPI) ===
+// === Endpoint 3: Webhook ===
 app.post('/api/wallet/webhook', async (req, res) => {
   try {
     const { order_id, status } = req.body;
@@ -233,15 +235,15 @@ app.post('/api/wallet/webhook', async (req, res) => {
 
     const orderData = orderDoc.data();
     if (orderData.status === 'PAID') {
-      return res.send('OK'); // Already processed
+      return res.send('OK');
     }
 
-    // Perform double verification check against API to verify authenticity
     const apiSecret = process.env.TRANZUPI_API_SECRET;
     const mobile = process.env.TRANZUPI_MOBILE;
     const baseUrl = process.env.TRANZUPI_BASE_URL || 'https://server.tranzupi.com';
 
-    const checkResponse = await axios.post(`${baseUrl}/api/check_status`, {
+    // 🔥 FIX: Added .php here as well
+    const checkResponse = await axios.post(`${baseUrl}/api/check_status.php`, {
       api_secret: apiSecret,
       mobile: mobile,
       order_id: order_id
