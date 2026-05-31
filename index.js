@@ -7,6 +7,8 @@ const admin = require('firebase-admin');
 const app = express();
 app.use(cors());
 app.use(express.json());
+// Webhook और URL-Encoded रिक्वेस्ट पार्स करने के लिए आवश्यक Middleware
+app.use(express.urlencoded({ extended: true }));
 
 const PORT = process.env.PORT || 5000;
 
@@ -30,7 +32,7 @@ try {
 
 const db = admin.firestore();
 
-// === Web Home Route (This stops "Cannot GET /" and shows a live status) ===
+// === Web Home Route (Shows Live Status on Web Browser) ===
 app.get('/', (req, res) => {
   res.json({
     status: "active",
@@ -70,30 +72,35 @@ app.post('/api/wallet/createOrder', authenticateUser, async (req, res) => {
       return res.status(403).json({ error: 'Forbidden: UID mismatch' });
     }
 
-    const apiSecret = process.env.TRANZUPI_API_SECRET;
-    const mobile = process.env.TRANZUPI_MOBILE;
-    const baseUrl = process.env.TRANZUPI_BASE_URL || 'https://server.tranzupi.com';
+    // Config parameters from Env variables
+    const userToken = process.env.TRANZUPI_USER_TOKEN || process.env.TRANZUPI_API_SECRET;
+    const mobile = process.env.TRANZUPI_MOBILE || '9999999999';
+    const baseUrl = 'https://tranzupi.com'; // Fixed base URL
 
-    const payload = {
-      api_secret: apiSecret,
-      mobile: mobile,
-      amount: parseFloat(amount).toFixed(2),
-      order_id: orderId,
-      customer_name: userName || 'Gamer',
-      customer_email: userEmail || 'user@gmail.com',
-      redirect_url: `https://purnima-esport.web.app`
-    };
+    // URL-Encoded फॉर्मेट में डेटा तैयार करना (डॉक्यूमेंटेशन के अनुसार)
+    const params = new URLSearchParams();
+    params.append('customer_mobile', mobile);
+    params.append('user_token', userToken);
+    params.append('amount', parseFloat(amount).toFixed(2));
+    params.append('order_id', orderId);
+    params.append('redirect_url', `https://purnima-esport.web.app`); // Your redirection URL
+    params.append('remark1', 'Wallet Recharge');
+    params.append('remark2', userName || 'Gamer');
 
     console.log(`Sending order create request to TranzUPI for order ${orderId} amount ${amount}`);
 
-    // 🔥 FIX: Added .php to the API endpoint path because TranzUPI is PHP-based
-    const tranzResponse = await axios.post(`${baseUrl}/api/create_order.php`, payload);
+    const tranzResponse = await axios.post(`${baseUrl}/api/create-order`, params, {
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded'
+      }
+    });
+    
     const resData = tranzResponse.data;
 
     if (resData.status === true || resData.status === 'success' || resData.success === true) {
-      const gatewayData = resData.data || resData;
+      const gatewayData = resData.result || resData.data || resData;
       
-      const qrData = gatewayData.qr_data || gatewayData.qrData || gatewayData.payment_url || gatewayData.paymentUrl || `upi://pay?pa=${gatewayData.upi_id || gatewayData.upiId}&pn=PurnimaESports&am=${amount}&tr=${orderId}`;
+      const qrData = gatewayData.payment_url || gatewayData.qr_data || gatewayData.paymentUrl;
       const upiId = gatewayData.upi_id || gatewayData.upiId || 'payment@tranzupi';
 
       await db.collection('orders').doc(orderId).set({
@@ -146,29 +153,29 @@ app.post('/api/wallet/verifyOrder', authenticateUser, async (req, res) => {
       return res.json({ status: 'PAID', message: 'Order was already successfully processed.' });
     }
 
-    const apiSecret = process.env.TRANZUPI_API_SECRET;
-    const mobile = process.env.TRANZUPI_MOBILE;
-    const baseUrl = process.env.TRANZUPI_BASE_URL || 'https://server.tranzupi.com';
+    const userToken = process.env.TRANZUPI_USER_TOKEN || process.env.TRANZUPI_API_SECRET;
+    const baseUrl = 'https://tranzupi.com';
 
-    const payload = {
-      api_secret: apiSecret,
-      mobile: mobile,
-      order_id: orderId
-    };
+    // Verify status via URL-Encoded check status API
+    const params = new URLSearchParams();
+    params.append('user_token', userToken);
+    params.append('order_id', orderId);
 
     console.log(`Checking transaction status on TranzUPI for order: ${orderId}`);
     
-    // 🔥 FIX: Added .php to the API endpoint path because TranzUPI is PHP-based
-    const checkResponse = await axios.post(`${baseUrl}/api/check_status.php`, payload);
+    const checkResponse = await axios.post(`${baseUrl}/api/check-order-status`, params, {
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded'
+      }
+    });
+    
     const resData = checkResponse.data;
 
-    const gatewayData = resData.data || resData;
+    // डॉक्यूमेंटेशन के अनुसार Success चेक करना (status: COMPLETED और result.status: SUCCESS)
     const isPaid = (
-      resData.status === 'success' || 
-      resData.success === true || 
-      gatewayData.status === 'SUCCESS' || 
-      gatewayData.status === 'COMPLETED' || 
-      gatewayData.status === 'PAID'
+      resData.status === 'COMPLETED' &&
+      resData.result &&
+      (resData.result.status === 'SUCCESS' || resData.result.txnStatus === 'COMPLETED')
     );
 
     if (isPaid) {
@@ -216,46 +223,51 @@ app.post('/api/wallet/verifyOrder', authenticateUser, async (req, res) => {
   }
 });
 
-// === Endpoint 3: Webhook ===
+// === Endpoint 3: Webhook (Callback handling) ===
 app.post('/api/wallet/webhook', async (req, res) => {
   try {
+    // TranzUPI वेबहुक से URL-Encoded डेटा भेजता है
     const { order_id, status } = req.body;
     console.log(`Webhook received: Order: ${order_id}, Status: ${status}`);
 
     if (!order_id) {
-      return res.status(400).send('Missing order_id');
+      res.setHeader('Content-Type', 'text/plain');
+      return res.status(400).send('BAD REQUEST');
     }
 
     const orderDocRef = db.collection('orders').doc(order_id);
     const orderDoc = await orderDocRef.get();
 
     if (!orderDoc.exists) {
-      return res.status(404).send('Order not found');
+      res.setHeader('Content-Type', 'text/plain');
+      return res.status(404).send('ORDER NOT FOUND');
     }
 
     const orderData = orderDoc.data();
     if (orderData.status === 'PAID') {
-      return res.send('OK');
+      res.setHeader('Content-Type', 'text/plain');
+      return res.status(200).send('OK'); // Already processed
     }
 
-    const apiSecret = process.env.TRANZUPI_API_SECRET;
-    const mobile = process.env.TRANZUPI_MOBILE;
-    const baseUrl = process.env.TRANZUPI_BASE_URL || 'https://server.tranzupi.com';
+    const userToken = process.env.TRANZUPI_USER_TOKEN || process.env.TRANZUPI_API_SECRET;
+    const baseUrl = 'https://tranzupi.com';
 
-    // 🔥 FIX: Added .php here as well
-    const checkResponse = await axios.post(`${baseUrl}/api/check_status.php`, {
-      api_secret: apiSecret,
-      mobile: mobile,
-      order_id: order_id
+    // Verify webhook data via check-status API to avoid fake payloads
+    const params = new URLSearchParams();
+    params.append('user_token', userToken);
+    params.append('order_id', order_id);
+
+    const checkResponse = await axios.post(`${baseUrl}/api/check-order-status`, params, {
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded'
+      }
     });
 
-    const gatewayData = checkResponse.data.data || checkResponse.data;
+    const resData = checkResponse.data;
     const isPaid = (
-      checkResponse.data.status === 'success' || 
-      checkResponse.data.success === true || 
-      gatewayData.status === 'SUCCESS' || 
-      gatewayData.status === 'COMPLETED' || 
-      gatewayData.status === 'PAID'
+      resData.status === 'COMPLETED' &&
+      resData.result &&
+      (resData.result.status === 'SUCCESS' || resData.result.txnStatus === 'COMPLETED')
     );
 
     if (isPaid) {
@@ -291,10 +303,13 @@ app.post('/api/wallet/webhook', async (req, res) => {
       console.log(`Webhook updated payment status successfully for ${order_id}`);
     }
 
-    return res.send('OK');
+    // डॉक्यूमेंटेशन के अनुसार रिप्लाई हमेशा text/plain 'OK' होना चाहिए
+    res.setHeader('Content-Type', 'text/plain');
+    return res.status(200).send('OK');
   } catch (error) {
     console.error('Webhook error:', error.message);
-    return res.status(500).send('Webhook Process Error');
+    res.setHeader('Content-Type', 'text/plain');
+    return res.status(500).send('ERROR');
   }
 });
 
