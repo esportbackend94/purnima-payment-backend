@@ -10,27 +10,22 @@ app.use(express.json());
 
 const PORT = process.env.PORT || 5000;
 
-// === Firebase Admin SDK Initialization ===
+ // === Firebase Admin SDK Initialization ===
 const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT;
-if (serviceAccountJson) {
-  try {
-    admin.initializeApp({
-      credential: admin.credential.cert(JSON.parse(serviceAccountJson))
-    });
-    console.log("Firebase Admin initialized successfully via Env Variable.");
-  } catch (err) {
-    console.error("Failed to parse FIREBASE_SERVICE_ACCOUNT JSON string:", err.message);
-  }
-} else {
-  try {
-    const serviceAccount = require('./serviceAccountKey.json');
-    admin.initializeApp({
-      credential: admin.credential.cert(serviceAccount)
-    });
-    console.log("Firebase Admin initialized via local serviceAccountKey.json.");
-  } catch (err) {
-    console.error("Firebase admin failed to initialize. Please check serviceAccountKey.json or FIREBASE_SERVICE_ACCOUNT env variable.");
-  }
+
+if (!serviceAccountJson) {
+  console.error("❌ CRITICAL ERROR: FIREBASE_SERVICE_ACCOUNT environment variable is missing on Render!");
+  process.exit(1); // सर्वर को तुरंत बंद करें ताकि गलत कॉन्फ़िगरेशन का पता चले
+}
+
+try {
+  admin.initializeApp({
+    credential: admin.credential.cert(JSON.parse(serviceAccountJson))
+  });
+  console.log("✅ Firebase Admin initialized successfully via Env Variable.");
+} catch (err) {
+  console.error("❌ CRITICAL ERROR: Failed to parse or initialize Firebase Admin JSON:", err.message);
+  process.exit(1); // पार्सिंग फेल होने पर सर्वर बंद करें
 }
 
 const db = admin.firestore();
