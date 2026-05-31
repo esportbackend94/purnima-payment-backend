@@ -1,192 +1,306 @@
-require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
+require('dotenv').config();
 const admin = require('firebase-admin');
 
 const app = express();
-
-// CORS और JSON Parser इनेबल करें
-app.use(cors({ origin: '*' }));
+app.use(cors());
 app.use(express.json());
 
-// Firebase Admin SDK इनिशियलाइज़ करें
-try {
-  if (process.env.FIREBASE_SERVICE_ACCOUNT) {
-    const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+const PORT = process.env.PORT || 5000;
+
+// === Firebase Admin SDK Initialization ===
+const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT;
+if (serviceAccountJson) {
+  try {
+    admin.initializeApp({
+      credential: admin.credential.cert(JSON.parse(serviceAccountJson))
+    });
+    console.log("Firebase Admin initialized successfully via Env Variable.");
+  } catch (err) {
+    console.error("Failed to parse FIREBASE_SERVICE_ACCOUNT JSON string:", err.message);
+  }
+} else {
+  try {
+    const serviceAccount = require('./serviceAccountKey.json');
     admin.initializeApp({
       credential: admin.credential.cert(serviceAccount)
     });
-    console.log("Firebase Admin SDK initialized successfully.");
-  } else {
-    admin.initializeApp({
-      credential: admin.credential.applicationDefault()
-    });
-    console.log("Firebase Admin initialized with default credentials.");
+    console.log("Firebase Admin initialized via local serviceAccountKey.json.");
+  } catch (err) {
+    console.error("Firebase admin failed to initialize. Please check serviceAccountKey.json or FIREBASE_SERVICE_ACCOUNT env variable.");
   }
-} catch (error) {
-    console.error("Firebase Initialization Error:", error.message);
 }
 
 const db = admin.firestore();
 
-// Middleware: Firebase Auth Token वेरीफाई करने के लिए
-async function verifyFirebaseToken(req, res, next) {
+// === Middleware: Verify Firebase Auth Token ===
+const authenticateUser = async (req, res, next) => {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ error: "Unauthorized access. Token missing." });
+    return res.status(401).json({ error: 'Unauthorized: Missing token' });
   }
 
   const idToken = authHeader.split('Bearer ')[1];
   try {
     const decodedToken = await admin.auth().verifyIdToken(idToken);
-    req.user = decodedToken; // User details save dynamic validation के लिए
+    req.user = decodedToken; // Decoded object contains 'uid', 'email', etc.
     next();
   } catch (error) {
-    return res.status(401).json({ error: "Invalid or expired Firebase token." });
+    console.error('Firebase Auth verification failed:', error.message);
+    return res.status(401).json({ error: 'Unauthorized: Invalid token' });
   }
-}
+};
 
-// 1. Endpoint: /api/wallet/createOrder (पेमेंट लिंक / QR जेनरेट करने के लिए)
-app.post('/api/wallet/createOrder', verifyFirebaseToken, async (req, res) => {
-  const { amount, orderId, userId, userEmail, userName } = req.body;
-
-  if (!amount || !orderId || !userId) {
-    return res.status(400).json({ error: "Missing required parameters (amount, orderId, userId)." });
-  }
-
+// === Endpoint 1: Create Order ===
+app.post('/api/wallet/createOrder', authenticateUser, async (req, res) => {
   try {
-    // TranzUPI API के लिए पेलोड तैयार करें
-    const tranzUpiPayload = {
-      api_key: process.env.TRANZ_UPI_API_KEY,
-      order_id: orderId,
-      amount: amount,
-      name: userName || "Player",
-      email: userEmail || "player@purnima.com",
-      redirect_url: process.env.REDIRECT_URL || "https://purnima-esport.firebaseapp.com",
-      callback_url: process.env.CALLBACK_URL || ""
-    };
+    const { amount, orderId, userId, userEmail, userName } = req.body;
 
-    const targetUrl = `${process.env.TRANZ_UPI_BASE_URL}/create-order`;
-
-    console.log(`Sending payment request to TranzUPI for Order: ${orderId}, Amount: ₹${amount}`);
-
-    // TranzUPI के API एंडपॉइंट पर रिक्वेस्ट भेजें
-    const gatewayResponse = await axios.post(targetUrl, tranzUpiPayload, {
-      headers: { 'Content-Type': 'application/json' }
-    });
-
-    const result = gatewayResponse.data;
-
-    // TranzUPI से प्राप्त होने वाले रिस्पॉन्स से QR स्ट्रिंग/पेमेंट डेटा और UPI ID निकालें
-    // ध्यान दें: रिस्पॉन्स के ऑब्जेक्ट स्ट्रक्चर को आपके ट्रान्ज़यूपी प्लान के अनुसार मैप किया गया है
-    const qrData = result.payment_url || (result.data ? result.data.payment_url : null);
-    const upiId = result.upi_id || (result.data ? result.data.upi_id : null) || process.env.MERCHANT_UPI_ID;
-
-    if (!qrData) {
-      console.error("TranzUPI Response Error:", JSON.stringify(result));
-      return res.status(500).json({ error: "Gateway failed to generate payment link." });
+    if (!amount || !orderId || !userId) {
+      return res.status(400).json({ error: 'Missing required parameters: amount, orderId, and userId' });
     }
 
-    return res.json({
-      success: true,
-      qrData: qrData,
-      orderId: orderId,
-      upiId: upiId
-    });
+    // Token UID validation for security
+    if (req.user.uid !== userId) {
+      return res.status(403).json({ error: 'Forbidden: UID mismatch' });
+    }
 
+    const apiSecret = process.env.TRANZUPI_API_SECRET;
+    const mobile = process.env.TRANZUPI_MOBILE;
+    const baseUrl = process.env.TRANZUPI_BASE_URL || 'https://server.tranzupi.com';
+
+    // Prepare API Request to TranzUPI
+    const payload = {
+      api_secret: apiSecret,
+      mobile: mobile,
+      amount: parseFloat(amount).toFixed(2),
+      order_id: orderId,
+      customer_name: userName || 'Gamer',
+      customer_email: userEmail || 'user@gmail.com',
+      redirect_url: `https://purnima-esport.web.app` // Change this to your frontend URL
+    };
+
+    console.log(`Sending order create request to TranzUPI for order ${orderId} amount ${amount}`);
+
+    const tranzResponse = await axios.post(`${baseUrl}/api/create_order`, payload);
+    const resData = tranzResponse.data;
+
+    // Check if order is generated successfully
+    if (resData.status === true || resData.status === 'success' || resData.success === true) {
+      const gatewayData = resData.data || resData;
+      
+      const qrData = gatewayData.qr_data || gatewayData.qrData || gatewayData.payment_url || gatewayData.paymentUrl || `upi://pay?pa=${gatewayData.upi_id || gatewayData.upiId}&pn=PurnimaESports&am=${amount}&tr=${orderId}`;
+      const upiId = gatewayData.upi_id || gatewayData.upiId || 'payment@tranzupi';
+
+      // Save order metadata as PENDING in Firestore
+      await db.collection('orders').doc(orderId).set({
+        orderId: orderId,
+        userId: userId,
+        amount: parseFloat(amount),
+        status: 'PENDING',
+        createdAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+
+      return res.json({
+        qrData: qrData,
+        orderId: orderId,
+        upiId: upiId,
+        status: 'PENDING'
+      });
+    } else {
+      console.error('TranzUPI error response:', resData);
+      return res.status(400).json({ error: resData.message || 'TranzUPI order creation failed' });
+    }
   } catch (error) {
-    console.error("Create Order Error:", error.response ? error.response.data : error.message);
-    return res.status(500).json({ error: "Internal Server Error during order creation." });
+    console.error('Error creating order:', error.message);
+    return res.status(500).json({ error: error.message || 'Server error creating payment order' });
   }
 });
 
-// 2. Endpoint: /api/wallet/verifyOrder (पेमेंट स्टेटस चेक और वॉलेट में क्रेडिट करने के लिए)
-app.post('/api/wallet/verifyOrder', verifyFirebaseToken, async (req, res) => {
-  const { orderId } = req.body;
-  const userId = req.user.uid; // Token से वेरीफाई किया गया सुरक्षित UID
-
-  if (!orderId) {
-    return res.status(400).json({ error: "Missing orderId." });
-  }
-
+// === Endpoint 2: Verify Order Status ===
+app.post('/api/wallet/verifyOrder', authenticateUser, async (req, res) => {
   try {
-    const statusPayload = {
-      api_key: process.env.TRANZ_UPI_API_KEY,
+    const { orderId } = req.body;
+
+    if (!orderId) {
+      return res.status(400).json({ error: 'Missing orderId parameter' });
+    }
+
+    // 1. Fetch order details from Firestore
+    const orderDocRef = db.collection('orders').doc(orderId);
+    const orderDoc = await orderDocRef.get();
+
+    if (!orderDoc.exists) {
+      return res.status(404).json({ error: 'Order records not found' });
+    }
+
+    const orderData = orderDoc.data();
+
+    // Prevent cross-user checks
+    if (orderData.userId !== req.user.uid) {
+      return res.status(403).json({ error: 'Unauthorized order access' });
+    }
+
+    if (orderData.status === 'PAID') {
+      return res.json({ status: 'PAID', message: 'Order was already successfully processed.' });
+    }
+
+    // 2. Verify with TranzUPI check_status API
+    const apiSecret = process.env.TRANZUPI_API_SECRET;
+    const mobile = process.env.TRANZUPI_MOBILE;
+    const baseUrl = process.env.TRANZUPI_BASE_URL || 'https://server.tranzupi.com';
+
+    const payload = {
+      api_secret: apiSecret,
+      mobile: mobile,
       order_id: orderId
     };
 
-    const targetUrl = `${process.env.TRANZ_UPI_BASE_URL}/check-status`;
+    console.log(`Checking transaction status on TranzUPI for order: ${orderId}`);
+    const checkResponse = await axios.post(`${baseUrl}/api/check_status`, payload);
+    const resData = checkResponse.data;
 
-    console.log(`Verifying payment status for Order ID: ${orderId}`);
+    const gatewayData = resData.data || resData;
+    const isPaid = (
+      resData.status === 'success' || 
+      resData.success === true || 
+      gatewayData.status === 'SUCCESS' || 
+      gatewayData.status === 'COMPLETED' || 
+      gatewayData.status === 'PAID'
+    );
 
-    // TranzUPI से पेमेंट स्टेटस की जांच करें
-    const gatewayResponse = await axios.post(targetUrl, statusPayload, {
-      headers: { 'Content-Type': 'application/json' }
-    });
+    if (isPaid) {
+      const userRef = db.collection('users').doc(orderData.userId);
+      const amount = orderData.amount;
 
-    const result = gatewayResponse.data;
-    
-    // स्टेटस चेक करें (सफल होने पर Status 'SUCCESS' या 'PAID' हो सकता है)
-    const paymentStatus = result.status || (result.data ? result.data.status : "PENDING");
-    const verifiedAmount = parseFloat(result.amount || (result.data ? result.data.amount : 0));
-
-    if (paymentStatus === "SUCCESS" || paymentStatus === "PAID") {
-      
-      const userRef = db.collection('users').doc(userId);
-
-      // Firestore transaction के जरिए सुरक्षा सुनिश्चित करें ताकि एक पेमेंट दो बार क्रेडिट न हो सके
-      const transactionSuccess = await db.runTransaction(async (transaction) => {
+      // 3. SECURELY deposit balance inside database transaction to avoid double spending
+      await db.runTransaction(async (transaction) => {
         const userDoc = await transaction.get(userRef);
         if (!userDoc.exists) {
-          throw new Error("User document does not exist in Firestore.");
+          throw new Error('User record does not exist!');
         }
 
-        const userData = userDoc.data();
-        const currentTransactions = userData.transactions || [];
+        const currentBalance = userDoc.data().balance || 0;
+        const newBalance = currentBalance + amount;
 
-        // चेक करें कि यह Order ID पहले से तो प्रोसेस नहीं हो चुका है
-        const isDuplicate = currentTransactions.some(txn => txn.orderId === orderId);
-        if (isDuplicate) {
-          return { alreadyProcessed: true };
+        const orderSnap = await transaction.get(orderDocRef);
+        if (orderSnap.data().status === 'PAID') {
+          throw new Error('Order already paid!');
         }
 
-        // वॉलेट बैलेंस और ट्रांजैक्शन हिस्ट्री अपडेट करें
-        const depositAmount = verifiedAmount > 0 ? verifiedAmount : 10; // सुरक्षा बैकअप राशि
+        // Add amount to balance and update transaction array
         transaction.update(userRef, {
-          balance: admin.firestore.FieldValue.increment(depositAmount),
+          balance: newBalance,
           transactions: admin.firestore.FieldValue.arrayUnion({
             type: 'credit',
-            amount: depositAmount,
-            msg: `Deposit via UPI (Ref: ${orderId})`,
-            orderId: orderId,
+            amount: amount,
+            msg: `Recharged Wallet (Txn: ${orderId})`,
             date: Date.now()
           })
         });
 
-        return { alreadyProcessed: false };
+        // Mark order status as PAID
+        transaction.update(orderDocRef, {
+          status: 'PAID',
+          updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
       });
 
-      console.log(`Order ${orderId} verified and wallet updated successfully.`);
-      return res.json({ status: 'PAID' });
+      console.log(`Order ${orderId} verified and balance updated for ${orderData.userId}`);
+      return res.json({ status: 'PAID', message: 'Payment successfully added to wallet' });
     } else {
-      console.log(`Order ${orderId} is still pending or failed. Status: ${paymentStatus}`);
-      return res.json({ status: 'PENDING' });
+      return res.json({ status: orderData.status || 'PENDING', message: 'Payment verification is still pending' });
     }
-
   } catch (error) {
-    console.error("Verify Order Error:", error.message);
-    return res.status(500).json({ error: "Internal Server Error during verification." });
+    console.error('Error verifying order:', error.message);
+    return res.status(500).json({ error: error.message || 'Server error verifying payment status' });
   }
 });
 
-// डिफ़ॉल्ट हेल्थ चेक रूट
-app.get('/', (req, res) => {
-  res.send('Purnima E-Sports Payment Backend is Active!');
+// === Endpoint 3: Webhook (For backup status notifications from TranzUPI) ===
+app.post('/api/wallet/webhook', async (req, res) => {
+  try {
+    const { order_id, status } = req.body;
+    console.log(`Webhook received: Order: ${order_id}, Status: ${status}`);
+
+    if (!order_id) {
+      return res.status(400).send('Missing order_id');
+    }
+
+    const orderDocRef = db.collection('orders').doc(order_id);
+    const orderDoc = await orderDocRef.get();
+
+    if (!orderDoc.exists) {
+      return res.status(404).send('Order not found');
+    }
+
+    const orderData = orderDoc.data();
+    if (orderData.status === 'PAID') {
+      return res.send('OK'); // Already processed
+    }
+
+    // Perform double verification check against API to verify authenticity
+    const apiSecret = process.env.TRANZUPI_API_SECRET;
+    const mobile = process.env.TRANZUPI_MOBILE;
+    const baseUrl = process.env.TRANZUPI_BASE_URL || 'https://server.tranzupi.com';
+
+    const checkResponse = await axios.post(`${baseUrl}/api/check_status`, {
+      api_secret: apiSecret,
+      mobile: mobile,
+      order_id: order_id
+    });
+
+    const gatewayData = checkResponse.data.data || checkResponse.data;
+    const isPaid = (
+      checkResponse.data.status === 'success' || 
+      checkResponse.data.success === true || 
+      gatewayData.status === 'SUCCESS' || 
+      gatewayData.status === 'COMPLETED' || 
+      gatewayData.status === 'PAID'
+    );
+
+    if (isPaid) {
+      const userRef = db.collection('users').doc(orderData.userId);
+      const amount = orderData.amount;
+
+      await db.runTransaction(async (transaction) => {
+        const userDoc = await transaction.get(userRef);
+        if (!userDoc.exists) return;
+
+        const currentBalance = userDoc.data().balance || 0;
+        const newBalance = currentBalance + amount;
+
+        const orderSnap = await transaction.get(orderDocRef);
+        if (orderSnap.data().status === 'PAID') return;
+
+        transaction.update(userRef, {
+          balance: newBalance,
+          transactions: admin.firestore.FieldValue.arrayUnion({
+            type: 'credit',
+            amount: amount,
+            msg: `Recharged Wallet (Webhook: ${order_id})`,
+            date: Date.now()
+          })
+        });
+
+        transaction.update(orderDocRef, {
+          status: 'PAID',
+          updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+      });
+
+      console.log(`Webhook updated payment status successfully for ${order_id}`);
+    }
+
+    return res.send('OK');
+  } catch (error) {
+    console.error('Webhook error:', error.message);
+    return res.status(500).send('Webhook Process Error');
+  }
 });
 
-// सर्वर पोर्ट इनिशियलाइज़ करें
-const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
+  console.log(`Purnima Payment server is running on port ${PORT}`);
 });
