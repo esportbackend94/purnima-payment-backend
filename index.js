@@ -60,7 +60,6 @@ app.post('/api/wallet/createOrder', async (req, res) => {
 
     const { amount, orderId, userName } = req.body;
 
-    // Minimum limit ko ₹10 se badalkar ₹1 kar diya gaya hai
     if (!amount || amount < 1)     return res.status(400).json({ error: 'Minimum ₹1 required' });
     if (amount > 50000)            return res.status(400).json({ error: 'Maximum ₹50,000 allowed' });
     if (!orderId)                  return res.status(400).json({ error: 'Order ID required' });
@@ -110,7 +109,7 @@ app.post('/api/wallet/createOrder', async (req, res) => {
 });
 
 // ============================================
-// POST /api/wallet/verifyOrder
+// POST /api/wallet/verifyOrder (UPDATED WITH WALLET CREDIT & IDEMPOTENCY)
 // ============================================
 app.post('/api/wallet/verifyOrder', async (req, res) => {
   try {
@@ -119,7 +118,7 @@ app.post('/api/wallet/verifyOrder', async (req, res) => {
     const { orderId } = req.body;
     if (!orderId) return res.status(400).json({ error: 'Order ID required' });
 
-    // Pehle Firestore check karo
+    // Pehle local database check karo
     const orderDoc = await db.collection('pending_orders').doc(orderId).get();
     if (orderDoc.exists && orderDoc.data().status === 'PAID') {
       return res.json({ status: 'PAID' });
@@ -144,10 +143,43 @@ app.post('/api/wallet/verifyOrder', async (req, res) => {
       tranzData.result.txnStatus === 'SUCCESS';
 
     if (isPaid) {
-      await db.collection('pending_orders').doc(orderId).set(
-        { status: 'PAID', paidAt: admin.firestore.FieldValue.serverTimestamp(), utr: tranzData.result.utr || '' },
-        { merge: true }
-      );
+      const orderData = orderDoc.exists ? orderDoc.data() : null;
+      
+      // Agar status abhi tak PAID nahi hai, to credit karo (duplicate credit hone se bachane ke liye)
+      if (orderData && orderData.status !== 'PAID') {
+        const userId = orderData.userId;
+        const amount = orderData.amount;
+        const utr = tranzData.result.utr || '';
+
+        // 1. Order status ko PAID mark karo
+        await db.collection('pending_orders').doc(orderId).set(
+          { status: 'PAID', paidAt: admin.firestore.FieldValue.serverTimestamp(), utr: utr },
+          { merge: true }
+        );
+
+        // 2. User wallet balance credit karo
+        if (userId) {
+          const userRef = db.collection('users').doc(userId);
+          const userDoc = await userRef.get();
+          if (userDoc.exists) {
+            const currentBalance = userDoc.data().balance || 0;
+            const newBalance = currentBalance + parseFloat(amount);
+
+            // balance update aur transactions list mein green history jodna
+            await userRef.update({
+              balance: newBalance,
+              transactions: admin.firestore.FieldValue.arrayUnion({
+                type: 'credit',
+                amount: parseFloat(amount),
+                msg: 'Add Cash (Verified)',
+                date: Date.now(),
+                utr: utr,
+                orderId: orderId
+              })
+            });
+          }
+        }
+      }
       return res.json({ status: 'PAID' });
     }
 
@@ -160,8 +192,7 @@ app.post('/api/wallet/verifyOrder', async (req, res) => {
 });
 
 // ============================================
-// POST /api/webhook/tranzupi
-// TranzUPI Dashboard mein yeh URL set karo
+// POST /api/webhook/tranzupi (UPDATED WEBHOOK LOGIC)
 // ============================================
 app.post('/api/webhook/tranzupi', async (req, res) => {
   try {
@@ -169,14 +200,13 @@ app.post('/api/webhook/tranzupi', async (req, res) => {
 
     if (!order_id || !amount) return res.status(200).send('OK');
 
-    // Idempotency - ek order ek baar hi process ho
+    // Idempotency check - ek order ek baar hi process ho
     const orderDoc = await db.collection('pending_orders').doc(order_id).get();
     if (orderDoc.exists && orderDoc.data().status === 'PAID') {
       return res.status(200).send('OK');
     }
 
     if (status === 'SUCCESS') {
-      // TranzUPI docs: verify karo pehle, phir credit karo
       const params = new URLSearchParams();
       params.append('user_token', TRANZ_USER_TOKEN);
       params.append('order_id',   order_id);
@@ -193,35 +223,41 @@ app.post('/api/webhook/tranzupi', async (req, res) => {
         verifyData.result.txnStatus === 'SUCCESS';
 
       if (isVerified) {
-        // Order update karo
+        // Order status ko PAID mark karo
         await db.collection('pending_orders').doc(order_id).set(
           { status: 'PAID', utr: utr || '', paidAt: admin.firestore.FieldValue.serverTimestamp() },
           { merge: true }
         );
 
-        // User wallet credit karo
+        // User balance credit karo
         if (userId) {
           const userRef = db.collection('users').doc(userId);
           const userDoc = await userRef.get();
           if (userDoc.exists) {
-            const newBalance = (userDoc.data().balance || 0) + parseFloat(amount);
-            await userRef.update({ balance: newBalance });
-            await userRef.collection('transactions').add({
-              type: 'DEPOSIT', amount: parseFloat(amount),
-              orderId: order_id, utr: utr || '', status: 'SUCCESS',
-              createdAt: admin.firestore.FieldValue.serverTimestamp()
+            const currentBalance = userDoc.data().balance || 0;
+            const newBalance = currentBalance + parseFloat(amount);
+            
+            await userRef.update({ 
+              balance: newBalance,
+              transactions: admin.firestore.FieldValue.arrayUnion({
+                type: 'credit',
+                amount: parseFloat(amount),
+                msg: 'Add Cash (Webhook)',
+                date: Date.now(),
+                utr: utr || '',
+                orderId: order_id
+              })
             });
           }
         }
       }
     }
 
-    // TranzUPI docs: SIRF 200 OK reply karo
     res.status(200).send('OK');
 
   } catch (err) {
     console.error('Webhook Error:', err.message);
-    res.status(200).send('OK'); // Error mein bhi 200 — nahi to 5 baar retry karega
+    res.status(200).send('OK');
   }
 });
 
