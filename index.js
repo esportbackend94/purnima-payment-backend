@@ -60,7 +60,8 @@ app.post('/api/wallet/createOrder', async (req, res) => {
 
     const { amount, orderId, userName } = req.body;
 
-    if (!amount || amount < 10)    return res.status(400).json({ error: 'Minimum ₹10 required' });
+    // Minimum limit ko ₹10 se badalkar ₹1 kar diya gaya hai
+    if (!amount || amount < 1)     return res.status(400).json({ error: 'Minimum ₹1 required' });
     if (amount > 50000)            return res.status(400).json({ error: 'Maximum ₹50,000 allowed' });
     if (!orderId)                  return res.status(400).json({ error: 'Order ID required' });
 
