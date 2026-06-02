@@ -109,7 +109,7 @@ app.post('/api/wallet/createOrder', async (req, res) => {
 });
 
 // ============================================
-// POST /api/wallet/verifyOrder (UPDATED WITH WALLET CREDIT & IDEMPOTENCY)
+// POST /api/wallet/verifyOrder
 // ============================================
 app.post('/api/wallet/verifyOrder', async (req, res) => {
   try {
@@ -137,15 +137,18 @@ app.post('/api/wallet/verifyOrder', async (req, res) => {
 
     const tranzData = await tranzRes.json();
 
+    // BULLETPROOF CHECK FOR COMPLETED/SUCCESS STATUS
     const isPaid =
       tranzData.status === 'COMPLETED' &&
       tranzData.result &&
-      tranzData.result.txnStatus === 'SUCCESS';
+      (tranzData.result.txnStatus === 'SUCCESS' || 
+       tranzData.result.txnStatus === 'COMPLETED' || 
+       tranzData.result.status === 'SUCCESS' || 
+       tranzData.result.status === 'COMPLETED');
 
     if (isPaid) {
       const orderData = orderDoc.exists ? orderDoc.data() : null;
       
-      // Agar status abhi tak PAID nahi hai, to credit karo (duplicate credit hone se bachane ke liye)
       if (orderData && orderData.status !== 'PAID') {
         const userId = orderData.userId;
         const amount = orderData.amount;
@@ -157,27 +160,20 @@ app.post('/api/wallet/verifyOrder', async (req, res) => {
           { merge: true }
         );
 
-        // 2. User wallet balance credit karo
+        // 2. User wallet balance credit karo (Race conditions se bachne ke liye safe FieldValue.increment use kiya hai)
         if (userId) {
           const userRef = db.collection('users').doc(userId);
-          const userDoc = await userRef.get();
-          if (userDoc.exists) {
-            const currentBalance = userDoc.data().balance || 0;
-            const newBalance = currentBalance + parseFloat(amount);
-
-            // balance update aur transactions list mein green history jodna
-            await userRef.update({
-              balance: newBalance,
-              transactions: admin.firestore.FieldValue.arrayUnion({
-                type: 'credit',
-                amount: parseFloat(amount),
-                msg: 'Add Cash (Verified)',
-                date: Date.now(),
-                utr: utr,
-                orderId: orderId
-              })
-            });
-          }
+          await userRef.update({
+            balance: admin.firestore.FieldValue.increment(parseFloat(amount)),
+            transactions: admin.firestore.FieldValue.arrayUnion({
+              type: 'credit',
+              amount: parseFloat(amount),
+              msg: 'Add Cash (Verified)',
+              date: Date.now(),
+              utr: utr,
+              orderId: orderId
+            })
+          });
         }
       }
       return res.json({ status: 'PAID' });
@@ -192,7 +188,7 @@ app.post('/api/wallet/verifyOrder', async (req, res) => {
 });
 
 // ============================================
-// POST /api/webhook/tranzupi (UPDATED WEBHOOK LOGIC)
+// POST /api/webhook/tranzupi
 // ============================================
 app.post('/api/webhook/tranzupi', async (req, res) => {
   try {
@@ -200,13 +196,13 @@ app.post('/api/webhook/tranzupi', async (req, res) => {
 
     if (!order_id || !amount) return res.status(200).send('OK');
 
-    // Idempotency check - ek order ek baar hi process ho
+    // Idempotency check
     const orderDoc = await db.collection('pending_orders').doc(order_id).get();
     if (orderDoc.exists && orderDoc.data().status === 'PAID') {
       return res.status(200).send('OK');
     }
 
-    if (status === 'SUCCESS') {
+    if (status === 'SUCCESS' || status === 'COMPLETED') {
       const params = new URLSearchParams();
       params.append('user_token', TRANZ_USER_TOKEN);
       params.append('order_id',   order_id);
@@ -217,10 +213,14 @@ app.post('/api/webhook/tranzupi', async (req, res) => {
       });
       const verifyData = await verifyRes.json();
 
+      // BULLETPROOF CHECK IN WEBHOOK TOO
       const isVerified =
         verifyData.status === 'COMPLETED' &&
         verifyData.result &&
-        verifyData.result.txnStatus === 'SUCCESS';
+        (verifyData.result.txnStatus === 'SUCCESS' || 
+         verifyData.result.txnStatus === 'COMPLETED' || 
+         verifyData.result.status === 'SUCCESS' || 
+         verifyData.result.status === 'COMPLETED');
 
       if (isVerified) {
         // Order status ko PAID mark karo
@@ -232,23 +232,17 @@ app.post('/api/webhook/tranzupi', async (req, res) => {
         // User balance credit karo
         if (userId) {
           const userRef = db.collection('users').doc(userId);
-          const userDoc = await userRef.get();
-          if (userDoc.exists) {
-            const currentBalance = userDoc.data().balance || 0;
-            const newBalance = currentBalance + parseFloat(amount);
-            
-            await userRef.update({ 
-              balance: newBalance,
-              transactions: admin.firestore.FieldValue.arrayUnion({
-                type: 'credit',
-                amount: parseFloat(amount),
-                msg: 'Add Cash (Webhook)',
-                date: Date.now(),
-                utr: utr || '',
-                orderId: order_id
-              })
-            });
-          }
+          await userRef.update({ 
+            balance: admin.firestore.FieldValue.increment(parseFloat(amount)),
+            transactions: admin.firestore.FieldValue.arrayUnion({
+              type: 'credit',
+              amount: parseFloat(amount),
+              msg: 'Add Cash (Webhook)',
+              date: Date.now(),
+              utr: utr || '',
+              orderId: order_id
+            })
+          });
         }
       }
     }
