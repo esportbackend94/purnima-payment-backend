@@ -64,9 +64,9 @@ app.post('/api/wallet/createOrder', async (req, res) => {
     if (amount > 50000)            return res.status(400).json({ error: 'Maximum ₹50,000 allowed' });
     if (!orderId)                  return res.status(400).json({ error: 'Order ID required' });
 
-    // Firestore mein pending order save karo
-    await db.collection('pending_orders').doc(orderId).set({
-      orderId,
+    // Firestore mein pending order save karo (Doc ID ko Lowercase kiya)
+    await db.collection('pending_orders').doc(orderId.toLowerCase()).set({
+      orderId:   orderId,
       userId:    uid,
       amount:    parseFloat(amount),
       status:    'PENDING',
@@ -118,8 +118,8 @@ app.post('/api/wallet/verifyOrder', async (req, res) => {
     const { orderId } = req.body;
     if (!orderId) return res.status(400).json({ error: 'Order ID required' });
 
-    // Pehle local database check karo
-    const orderDoc = await db.collection('pending_orders').doc(orderId).get();
+    // Pehle local database check karo (Using lowercase doc ID)
+    const orderDoc = await db.collection('pending_orders').doc(orderId.toLowerCase()).get();
     if (orderDoc.exists && orderDoc.data().status === 'PAID') {
       return res.json({ status: 'PAID' });
     }
@@ -137,7 +137,6 @@ app.post('/api/wallet/verifyOrder', async (req, res) => {
 
     const tranzData = await tranzRes.json();
 
-    // BULLETPROOF CHECK FOR COMPLETED/SUCCESS STATUS
     const isPaid =
       tranzData.status === 'COMPLETED' &&
       tranzData.result &&
@@ -154,13 +153,13 @@ app.post('/api/wallet/verifyOrder', async (req, res) => {
         const amount = orderData.amount;
         const utr = tranzData.result.utr || '';
 
-        // 1. Order status ko PAID mark karo
-        await db.collection('pending_orders').doc(orderId).set(
+        // 1. Order status ko PAID mark karo (Using lowercase doc ID)
+        await db.collection('pending_orders').doc(orderId.toLowerCase()).set(
           { status: 'PAID', paidAt: admin.firestore.FieldValue.serverTimestamp(), utr: utr },
           { merge: true }
         );
 
-        // 2. User wallet balance credit karo (Race conditions se bachne ke liye safe FieldValue.increment use kiya hai)
+        // 2. User wallet balance credit karo
         if (userId) {
           const userRef = db.collection('users').doc(userId);
           await userRef.update({
@@ -196,8 +195,8 @@ app.post('/api/webhook/tranzupi', async (req, res) => {
 
     if (!order_id || !amount) return res.status(200).send('OK');
 
-    // Idempotency check
-    const orderDoc = await db.collection('pending_orders').doc(order_id).get();
+    // Idempotency check - Doc ID ko lowercase karke match kiya
+    const orderDoc = await db.collection('pending_orders').doc(order_id.toLowerCase()).get();
     if (orderDoc.exists && orderDoc.data().status === 'PAID') {
       return res.status(200).send('OK');
     }
@@ -213,7 +212,6 @@ app.post('/api/webhook/tranzupi', async (req, res) => {
       });
       const verifyData = await verifyRes.json();
 
-      // BULLETPROOF CHECK IN WEBHOOK TOO
       const isVerified =
         verifyData.status === 'COMPLETED' &&
         verifyData.result &&
@@ -223,8 +221,12 @@ app.post('/api/webhook/tranzupi', async (req, res) => {
          verifyData.result.status === 'COMPLETED');
 
       if (isVerified) {
-        // Order status ko PAID mark karo
-        await db.collection('pending_orders').doc(order_id).set(
+        const originalAmount = (orderDoc.exists && orderDoc.data().amount) 
+          ? parseFloat(orderDoc.data().amount) 
+          : parseFloat(amount);
+
+        // Order status ko PAID mark karo (Using lowercase doc ID)
+        await db.collection('pending_orders').doc(order_id.toLowerCase()).set(
           { status: 'PAID', utr: utr || '', paidAt: admin.firestore.FieldValue.serverTimestamp() },
           { merge: true }
         );
@@ -233,10 +235,10 @@ app.post('/api/webhook/tranzupi', async (req, res) => {
         if (userId) {
           const userRef = db.collection('users').doc(userId);
           await userRef.update({ 
-            balance: admin.firestore.FieldValue.increment(parseFloat(amount)),
+            balance: admin.firestore.FieldValue.increment(originalAmount),
             transactions: admin.firestore.FieldValue.arrayUnion({
               type: 'credit',
-              amount: parseFloat(amount),
+              amount: originalAmount,
               msg: 'Add Cash (Webhook)',
               date: Date.now(),
               utr: utr || '',
