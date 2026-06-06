@@ -12,7 +12,8 @@ const PORT = process.env.PORT || 3000;
 // ============================================
 const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
 admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount)
+  credential: admin.credential.cert(serviceAccount),
+  projectId: "purnima-esport-d9b94"
 });
 const db = admin.firestore();
 
