@@ -111,14 +111,26 @@ app.post('/api/wallet/createOrder', async (req, res) => {
     if (amount > 50000)            return res.status(400).json({ error: 'Maximum ₹50,000 allowed' });
     if (!orderId)                  return res.status(400).json({ error: 'Order ID required' });
 
-    // Firestore mein pending order save karo (Doc ID ko Lowercase kiya)
-    await db.collection('pending_orders').doc(orderId.toLowerCase()).set({
-      orderId:   orderId,
-      userId:    uid,
-      amount:    parseFloat(amount),
-      status:    'PENDING',
-      createdAt: admin.firestore.FieldValue.serverTimestamp()
-    });
+        // Firestore mein pending order save karo (Doc ID ko Lowercase kiya)
+    try {
+      console.log('Creating pending order:', orderId.toLowerCase(), 'for user:', uid);
+      
+      await db.collection('pending_orders').doc(orderId.toLowerCase()).set({
+        orderId:   orderId,
+        userId:    uid,
+        amount:    parseFloat(amount),
+        status:    'PENDING',
+        createdAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+      
+      console.log('✅ Pending order saved successfully');
+      
+    } catch (dbErr) {
+      console.error('❌ Firestore Write Error:', dbErr.message);
+      console.error('Error Code:', dbErr.code);
+      throw new Error('Database permission denied. Check Firebase Service Account has Admin role.');
+    }
+
 
     // TranzUPI API Call - Create Order
     const params = new URLSearchParams();
