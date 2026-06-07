@@ -10,11 +10,42 @@ const PORT = process.env.PORT || 3000;
 // ============================================
 // FIREBASE ADMIN INITIALIZE
 // ============================================
-const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
-  projectId: "purnima-esport-d9b94"
-});
+// ============================================
+// FIREBASE ADMIN INITIALIZE (FIXED)
+// ============================================
+try {
+  const serviceAccountRaw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+  
+  if (!serviceAccountRaw) {
+    throw new Error('FIREBASE_SERVICE_ACCOUNT_JSON environment variable is missing!');
+  }
+  
+  console.log('Service Account Raw Length:', serviceAccountRaw.length);
+  console.log('First 100 chars:', serviceAccountRaw.substring(0, 100));
+  
+  let serviceAccount;
+  try {
+    serviceAccount = JSON.parse(serviceAccountRaw);
+  } catch (parseErr) {
+    console.error('JSON Parse Error:', parseErr.message);
+    throw new Error('Invalid JSON in FIREBASE_SERVICE_ACCOUNT_JSON. Make sure it is raw JSON string, not base64 or file path.');
+  }
+  
+  console.log('Service Account Email:', serviceAccount.client_email);
+  console.log('Project ID:', serviceAccount.project_id);
+  
+  admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount),
+    projectId: serviceAccount.project_id || "purnima-esport-d9b94"
+  });
+  
+  console.log('✅ Firebase Admin initialized successfully');
+  
+} catch (initErr) {
+  console.error('❌ Firebase Admin Init Failed:', initErr.message);
+  throw initErr;
+}
+
 const db = admin.firestore();
 db.settings({ 
   ignoreUndefinedProperties: true 
