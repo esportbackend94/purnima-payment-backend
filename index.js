@@ -44,8 +44,20 @@ async function verifyFirebaseToken(req) {
     throw new Error('Unauthorized - Token missing');
   }
   const token = authHeader.split('Bearer ')[1];
-  return await admin.auth().verifyIdToken(token);
+  
+  // 🔥 DEBUG: Token length check
+  if (!token || token.length < 100) {
+    throw new Error('Unauthorized - Invalid token format');
+  }
+  
+  try {
+    return await admin.auth().verifyIdToken(token);
+  } catch (err) {
+    console.error('Token verify failed:', err.message);
+    throw new Error('Unauthorized - Token expired or invalid');
+  }
 }
+
 
 // ============================================
 // HEALTH CHECK
