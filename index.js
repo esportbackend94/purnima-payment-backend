@@ -31,14 +31,16 @@ try {
   console.log('Service Account Email:', serviceAccount.client_email);
   console.log('Project ID from Service Account:', serviceAccount.project_id);
   
-  // 🔥🔥🔥 FIX: Force correct project ID to match frontend 🔥🔥🔥
+    // 🔥🔥🔥 FIX: Force correct project ID to match frontend 🔥🔥🔥
   const CORRECT_PROJECT_ID = "purnima-esport-d9b94";
-  
+
     admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount),
-    projectId: CORRECT_PROJECT_ID,
-    databaseURL: "https://purnima-esport-d9b94.firebaseio.com"
-  });
+      credential: admin.credential.cert(serviceAccount),
+      projectId: CORRECT_PROJECT_ID,
+      databaseURL: "https://purnima-esport-d9b94.firebaseio.com",
+      storageBucket: "purnima-esport-d9b94.appspot.com"
+    });
+
 
   
   console.log('✅ Firebase Admin initialized successfully with project:', CORRECT_PROJECT_ID);
