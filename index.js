@@ -32,7 +32,7 @@ try {
   console.log('Project ID from Service Account:', serviceAccount.project_id);
   
     // 🔥🔥🔥 FIX: Force correct project ID to match frontend 🔥🔥🔥
-  const CORRECT_PROJECT_ID = serviceAccount.project_id;
+  const CORRECT_PROJECT_ID = 'purnima-esport-d9b94';
 
     admin.initializeApp({
       credential: admin.credential.cert(serviceAccount),
