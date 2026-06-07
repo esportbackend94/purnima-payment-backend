@@ -8,10 +8,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // ============================================
-// FIREBASE ADMIN INITIALIZE
-// ============================================
-// ============================================
-// FIREBASE ADMIN INITIALIZE (FIXED)
+// FIREBASE ADMIN INITIALIZE (100% FIXED)
 // ============================================
 try {
   const serviceAccountRaw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
@@ -32,14 +29,17 @@ try {
   }
   
   console.log('Service Account Email:', serviceAccount.client_email);
-  console.log('Project ID:', serviceAccount.project_id);
+  console.log('Project ID from Service Account:', serviceAccount.project_id);
+  
+  // 🔥🔥🔥 FIX: Force correct project ID to match frontend 🔥🔥🔥
+  const CORRECT_PROJECT_ID = "purnima-esport-d9b94";
   
   admin.initializeApp({
     credential: admin.credential.cert(serviceAccount),
-    projectId: serviceAccount.project_id || "purnima-esport-d9b94"
+    projectId: CORRECT_PROJECT_ID
   });
   
-  console.log('✅ Firebase Admin initialized successfully');
+  console.log('✅ Firebase Admin initialized successfully with project:', CORRECT_PROJECT_ID);
   
 } catch (initErr) {
   console.error('❌ Firebase Admin Init Failed:', initErr.message);
@@ -89,7 +89,6 @@ async function verifyFirebaseToken(req) {
   }
 }
 
-
 // ============================================
 // HEALTH CHECK
 // ============================================
@@ -111,7 +110,7 @@ app.post('/api/wallet/createOrder', async (req, res) => {
     if (amount > 50000)            return res.status(400).json({ error: 'Maximum ₹50,000 allowed' });
     if (!orderId)                  return res.status(400).json({ error: 'Order ID required' });
 
-        // Firestore mein pending order save karo (Doc ID ko Lowercase kiya)
+    // Firestore mein pending order save karo
     try {
       console.log('Creating pending order:', orderId.toLowerCase(), 'for user:', uid);
       
@@ -130,7 +129,6 @@ app.post('/api/wallet/createOrder', async (req, res) => {
       console.error('Error Code:', dbErr.code);
       throw new Error('Database permission denied. Check Firebase Service Account has Admin role.');
     }
-
 
     // TranzUPI API Call - Create Order
     const params = new URLSearchParams();
@@ -177,7 +175,7 @@ app.post('/api/wallet/verifyOrder', async (req, res) => {
     const { orderId } = req.body;
     if (!orderId) return res.status(400).json({ error: 'Order ID required' });
 
-    // Pehle local database check karo (Using lowercase doc ID)
+    // Pehle local database check karo
     const orderDoc = await db.collection('pending_orders').doc(orderId.toLowerCase()).get();
     if (orderDoc.exists && orderDoc.data().status === 'PAID') {
       return res.json({ status: 'PAID' });
@@ -212,7 +210,7 @@ app.post('/api/wallet/verifyOrder', async (req, res) => {
         const amount = orderData.amount;
         const utr = tranzData.result.utr || '';
 
-        // 1. Order status ko PAID mark karo (Using lowercase doc ID)
+        // 1. Order status ko PAID mark karo
         await db.collection('pending_orders').doc(orderId.toLowerCase()).set(
           { status: 'PAID', paidAt: admin.firestore.FieldValue.serverTimestamp(), utr: utr },
           { merge: true }
@@ -254,7 +252,7 @@ app.post('/api/webhook/tranzupi', async (req, res) => {
 
     if (!order_id || !amount) return res.status(200).send('OK');
 
-    // Idempotency check - Doc ID ko lowercase karke match kiya
+    // Idempotency check
     const orderDoc = await db.collection('pending_orders').doc(order_id.toLowerCase()).get();
     if (orderDoc.exists && orderDoc.data().status === 'PAID') {
       return res.status(200).send('OK');
@@ -284,7 +282,7 @@ app.post('/api/webhook/tranzupi', async (req, res) => {
           ? parseFloat(orderDoc.data().amount) 
           : parseFloat(amount);
 
-        // Order status ko PAID mark karo (Using lowercase doc ID)
+        // Order status ko PAID mark karo
         await db.collection('pending_orders').doc(order_id.toLowerCase()).set(
           { status: 'PAID', utr: utr || '', paidAt: admin.firestore.FieldValue.serverTimestamp() },
           { merge: true }
