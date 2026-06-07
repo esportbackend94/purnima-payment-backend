@@ -16,6 +16,9 @@ admin.initializeApp({
   projectId: "purnima-esport-d9b94"
 });
 const db = admin.firestore();
+db.settings({ 
+  ignoreUndefinedProperties: true 
+});
 
 // ============================================
 // MIDDLEWARE
